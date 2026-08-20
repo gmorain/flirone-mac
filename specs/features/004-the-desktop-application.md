@@ -33,7 +33,12 @@ table, labelled and in degrees, and is shown as untrustworthy when the
 calibration in use did not come from the camera that took the picture. Labels
 are drawn on their own backing so they stay legible over a saturated hot region.
 
-**Saving.** A capture stores everything needed to reconstruct the measurement
+**Saving.** Line profiles export as CSV, one row per pixel step, carrying the
+pixel coordinates and the calibration and conditions they were computed under, so
+a curve can be reprocessed elsewhere and each row traced back to a place in the
+image. Hovering the plot marks that pixel on the image and names the row.
+
+A capture stores everything needed to reconstruct the measurement
 later: raw counts, the temperature field, the visible photograph, the rendered
 image, and the calibration and conditions in force. So a capture reopened months
 later can be reprocessed under corrected assumptions and produce the
@@ -80,6 +85,8 @@ the result by eye, not asserted.
 - [x] Readout table with calibration state surfaced
 - [x] Legible labels over any background
 - [x] Captures with everything needed to reprocess
+- [x] Line profile CSV export with pixel coordinates and provenance
+- [x] Cursor and profile hover reporting pixel coordinates, cross-linked
 - [x] CSV and float TIFF export, optional GeoTIFF, replayable folders
 - [x] Two-tab layout split by frequency of use
 - [x] App bundle with icon and document types

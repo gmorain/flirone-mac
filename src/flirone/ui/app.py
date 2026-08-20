@@ -38,7 +38,7 @@ from ..compose import MODE_EDGES, MODES, Alignment, compose
 from ..decode import DecodedFrame
 from ..distance import ParallaxModel
 from ..distance import estimate as distance_estimate
-from ..export import save_capture
+from ..export import profile_csv, save_capture, save_profiles
 from ..measure import Delta, MeasurementSet
 from ..palettes import DEFAULT_PALETTE, PALETTES
 from ..planck_import import load as load_planck
@@ -78,7 +78,10 @@ class MainWindow(QMainWindow):
         self.view = ThermalView(self.measurements)
         self.view.measurements_changed.connect(self._refresh_readout)
         self.view.cursor_moved.connect(self._on_cursor)
+
         self.profile = ProfilePlot()
+        self.profile.sample_hovered.connect(self._on_profile_hover)
+        self.profile.hover_cleared.connect(self._on_profile_leave)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.view)
@@ -95,6 +98,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.status = self.statusBar()
+        # Permanent, because a coordinate that disappears cannot be written down
+        # or matched against a row in an exported profile.
+        self.cursor_label = QLabel("")
+        self.cursor_label.setMinimumWidth(300)
+        self.status.addPermanentWidget(self.cursor_label)
         self._build_menu()
 
         self.setAcceptDrops(True)
@@ -116,6 +124,11 @@ class MainWindow(QMainWindow):
         capture.setShortcut("Ctrl+S")
         capture.triggered.connect(self._capture)
         file_menu.addAction(capture)
+
+        export_profile = QAction("Export line &profile as CSV...", self)
+        export_profile.setShortcut("Ctrl+E")
+        export_profile.triggered.connect(self._export_profiles)
+        file_menu.addAction(export_profile)
 
         open_image = QAction("&Open radiometric image...", self)
         open_image.setShortcut("Ctrl+O")
@@ -430,13 +443,27 @@ class MainWindow(QMainWindow):
         self.view.update()
 
     def _on_cursor(self, x: int, y: int) -> None:
+        """Report the pixel under the mouse, in sensor coordinates."""
         if self.temps is None:
             return
         h, w = self.temps.shape
-        if 0 <= x < w and 0 <= y < h:
-            self.status.showMessage(f"({x}, {y})  {self.temps[y, x]:.1f} °C", 1500)
+        if not (0 <= x < w and 0 <= y < h):
+            self.cursor_label.setText("")
+            return
+        unit = "" if self.planck.trusted else " (relative)"
+        self.cursor_label.setText(f"x {x}  y {y}   {self.temps[y, x]:.1f} °C{unit}")
 
-    # -- calibration --------------------------------------------------------
+    def _on_profile_hover(self, series: int, x: int, y: int, value: float, index: int) -> None:
+        """Tie a point on the profile curve back to its pixel in the image."""
+        self.view.set_highlight((x, y))
+        unit = "" if self.planck.trusted else " (relative)"
+        self.cursor_label.setText(
+            f"L{series + 1} row {index}   x {x}  y {y}   {value:.1f} °C{unit}"
+        )
+
+    def _on_profile_leave(self) -> None:
+        self.view.set_highlight(None)
+        self.cursor_label.setText("")
 
     def _load_calibration(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -760,6 +787,41 @@ class MainWindow(QMainWindow):
         chosen = QFileDialog.getExistingDirectory(self, "Capture folder", str(self.output_dir))
         if chosen:
             self.output_dir = Path(chosen)
+
+    def _export_profiles(self) -> None:
+        """Write the drawn line profiles as CSV: one row per pixel step."""
+        if self.temps is None or not self.measurements.lines:
+            QMessageBox.information(
+                self,
+                "Export line profile",
+                "Draw a line on the image first. Its profile is what gets exported.",
+            )
+            return
+
+        if len(self.measurements.lines) == 1:
+            line = self.measurements.lines[0]
+            label = line.label or "L1"
+            suggested = str(Path(self.output_dir) / f"profile_{label}.csv")
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Export line profile", suggested, "CSV (*.csv)"
+            )
+            if not path:
+                return
+            Path(path).write_text(
+                profile_csv(line, self.temps, self.planck, self.conditions, label)
+            )
+            self.status.showMessage(f"Wrote {Path(path).name}", 5000)
+            return
+
+        directory = QFileDialog.getExistingDirectory(
+            self, "Export line profiles to folder", str(self.output_dir)
+        )
+        if not directory:
+            return
+        written = save_profiles(
+            Path(directory), self.measurements, self.temps, self.planck, self.conditions
+        )
+        self.status.showMessage(f"Wrote {len(written)} profiles to {Path(directory).name}", 6000)
 
     def _capture(self) -> None:
         if self.frame is None or self.temps is None:

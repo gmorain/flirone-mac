@@ -14,6 +14,10 @@ TOOL_SPOT = "spot"
 TOOL_BOX = "box"
 TOOL_LINE = "line"
 
+# Overlay text sits on a photo, often at retina density, so it needs to be
+# larger than ordinary UI text to stay readable.
+LABEL_POINT_SIZE = 13
+
 _ACCENT = QColor(255, 255, 255)
 _SHADOW = QColor(0, 0, 0, 170)
 _HOT = QColor(255, 80, 60)
@@ -47,6 +51,7 @@ class ThermalView(QWidget):
         self._dragging_spot: Spot | None = None
         self._drag_active = False
         self.placeholder = "waiting for frames"
+        self._highlight: tuple[int, int] | None = None
 
     # -- data ---------------------------------------------------------------
 
@@ -55,6 +60,12 @@ class ThermalView(QWidget):
         self._pixmap = QPixmap.fromImage(to_qimage(rgb))
         self._temps = temps
         self.update()
+
+    def set_highlight(self, point: tuple[int, int] | None) -> None:
+        """Mark a sensor pixel, used to show where a hovered profile sample sits."""
+        if self._highlight != point:
+            self._highlight = point
+            self.update()
 
     def set_drag_active(self, active: bool) -> None:
         """Highlight the canvas while a file is being dragged over the window."""
@@ -196,7 +207,7 @@ class ThermalView(QWidget):
             return
 
         font = QFont()
-        font.setPointSize(10)
+        font.setPointSize(LABEL_POINT_SIZE)
         painter.setFont(font)
 
         for i, spot in enumerate(self.measurements.spots, 1):
@@ -236,6 +247,9 @@ class ThermalView(QWidget):
             x, y, v = coldspot(temps)
             self._draw_spot(painter, x, y, f"{v:.1f}°", _COLD, "min")
 
+        if self._highlight is not None:
+            self._draw_highlight(painter)
+
         if self._drag_active:
             self._draw_drop_hint(painter)
 
@@ -247,6 +261,20 @@ class ThermalView(QWidget):
                 painter.drawRect(QRect(a.toPoint(), b.toPoint()))
             else:
                 painter.drawLine(a, b)
+
+    def _draw_highlight(self, painter: QPainter) -> None:
+        """Ring marking the pixel under the cursor in the profile plot."""
+        x, y = self._highlight
+        p = self._to_widget(x, y)
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(0, 0, 0, 200), 3.4))
+        painter.drawEllipse(p, 7.0, 7.0)
+        painter.setPen(QPen(QColor(120, 230, 255), 1.8))
+        painter.drawEllipse(p, 7.0, 7.0)
+        painter.drawLine(QPointF(p.x() - 11, p.y()), QPointF(p.x() - 4, p.y()))
+        painter.drawLine(QPointF(p.x() + 4, p.y()), QPointF(p.x() + 11, p.y()))
+        painter.restore()
 
     def _draw_drop_hint(self, painter: QPainter) -> None:
         """Overlay shown while a file is dragged over the window."""

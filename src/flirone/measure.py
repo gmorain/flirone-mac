@@ -108,8 +108,14 @@ class Line:
     y1: int
     label: str = ""
 
-    def samples(self, temps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Return (distance_px, temperature) sampled at one point per pixel step."""
+    def sample_points(
+        self, temps: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return (distance_px, x, y, temperature) one sample per pixel step.
+
+        The pixel coordinates come back alongside the values so a profile can be
+        exported and traced back to the image, not just plotted.
+        """
         n = max(int(round(np.hypot(self.x1 - self.x0, self.y1 - self.y0))), 1) + 1
         xs = np.linspace(self.x0, self.x1, n)
         ys = np.linspace(self.y0, self.y1, n)
@@ -117,7 +123,12 @@ class Line:
         xi = np.clip(np.round(xs).astype(int), 0, w - 1)
         yi = np.clip(np.round(ys).astype(int), 0, h - 1)
         distance = np.hypot(xs - self.x0, ys - self.y0)
-        return distance, temps[yi, xi]
+        return distance, xi, yi, temps[yi, xi]
+
+    def samples(self, temps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return (distance_px, temperature) sampled at one point per pixel step."""
+        distance, _xi, _yi, values = self.sample_points(temps)
+        return distance, values
 
     def measure(self, temps: np.ndarray) -> Stats:
         _, values = self.samples(temps)

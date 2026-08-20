@@ -251,10 +251,31 @@ Left-click places or drags, right-click removes.
 
 ## Captures
 
-Each capture is a folder containing the visible JPEG, the colourised thermal
-PNG, the raw counts and calibrated temperature field as TIFFs, a CSV of the
-temperature grid, an `.npz` for replay, and `metadata.json` recording the Planck
-constants and conditions used. Optional GeoTIFF output needs the `geo` extra.
+A capture stores everything needed to reconstruct the measurement later: raw
+counts, the temperature field, the visible photograph, the rendered image, and
+the calibration and conditions in force.
+
+Line profiles are written as CSV alongside, one file per line, and can also be
+exported on their own with `File > Export line profile as CSV` (⌘E):
+
+```
+# flirone line profile bed
+# from,(0,384),to,(479,384),samples,480
+# calibration,camera,source,IMG_3888.JPG (F02F9T00570)
+# emissivity,0.95,reflected_c,22.0,atmospheric_c,20.0,humidity,0.5,distance_m,1.0
+index,distance_px,x_px,y_px,temperature_c
+0,0.000,0,384,53.730
+1,1.000,1,384,53.681
+```
+
+Pixel coordinates come with every row, so a sample can be traced back to the
+image. The commented header carries the calibration and conditions, because a
+column of degrees separated from its provenance cannot be checked or recomputed.
+Read it with `pandas.read_csv(path, comment="#")`.
+
+Hovering the image reports the pixel under the cursor; hovering the profile plot
+marks the corresponding pixel on the image and names the CSV row, which is how a
+feature on the curve gets tied to a place in the scene.
 
 ## Diagnostics
 
