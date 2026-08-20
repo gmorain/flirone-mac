@@ -310,3 +310,117 @@ is under NDA and was not available here.
 Capture the real exchange between the iPhone and the camera with an inline USB
 2.0 analyser (Cynthion, or a Total Phase Beagle) and diff it against our trace.
 Everything else at this point is guessing at an unpublished specification.
+
+## 10. Higher-resolution capture corrects sections 6-9
+
+A fresh round of fine-grained probes (camera attached, control interface only)
+measured the failure far more precisely than the earlier polling loops, and
+some of what sections 6-9 concluded was an artefact of coarse timing.
+
+### The failure is a millisecond-scale pipe error, not a 0.1s reboot
+
+Opening the frame or fileio EA session errors endpoint 0x81 (the iAP2 link IN)
+within ~2 ms of the write, with libusb errno 5 (EIO / pipe error), and zero
+inbound bytes first. The camera does not send an iAP2 RST or any final message;
+the pipe simply dies. The "~0.1s" in section 6 was the granularity of the old
+read/pump loops, not the real latency. `clear_halt` on 0x81 does not recover it.
+
+Whether the device then leaves the USB bus depends on host state: with only the
+control interface claimed it often stays enumerated with a dead pipe; with the
+vendor interfaces (1 and 2) also claimed and being read, it fully re-enumerates.
+Either way the symptom is an immediate EIO on 0x81.
+
+### config is acknowledged; frame and fileio are not
+
+Side by side, correctly routed on the control session:
+
+```
+StartEASession(config, id 1)  ->  camera link-ACKs at +1.8ms, bus stable
+StartEASession(frame,  id 1)  ->  EIO on 0x81 at +2.0ms, no ACK, pipe dead
+```
+
+The only difference between the two writes is the protocol-id byte (0 vs 2). The
+camera link-acknowledges the config session and refuses the frame/fileio one at
+the USB level rather than at the iAP2 level.
+
+### Frame data never appears on the vendor endpoints
+
+With interfaces 1 and 2 claimed and alt-1 selected, and background readers on
+both vendor bulk INs (0x83, 0x85) running before and during the frame session
+open, **nothing ever arrives on 0x83 or 0x85**. The "frames come over the vendor
+endpoint once the EA session opens" hypothesis is not supported.
+
+### iAP2 auth followed by the vendor init does NOT reset
+
+Authenticating over iAP2 and then running the Android vendor start sequence,
+skipping EA sessions entirely (interface alt-settings selected via the
+IOKit-safe API, the 0xCC-framed openFile/readFile JSON written to EP 0x02), runs
+clean: every step stays alive and on the bus. But no frames flow, most likely
+because after the iAP2 handshake the camera is in iAP2 mode on EP 0x02 and
+ignores raw vendor bytes there.
+
+### Where this leaves it
+
+The reset is provoked specifically by `StartEASession` for a vendor-backed
+protocol (1 or 2), and only that. Avoiding it keeps the camera fully alive, but
+no path found so far makes frames flow: the vendor command channel (raw 0x02) is
+inert under iAP2, and the EA-session channel resets the link. The open question
+is narrower now: what does a real device send, in what USB mode, to make the
+camera stream after authentication. An analyser capture of the iOS app remains
+the way to answer it; these probes have cornered the question, not closed it.
+
+## 11. The EA descriptors refute the native-transport theory for frame
+
+A multi-agent analysis proposed that fileio and frame reset because opening them
+commits the camera to bring up an iAP2 "native transport" on the vendor bulk
+interfaces, which a real iPhone services and a Mac does not. Persisting and
+decoding the full 18-parameter IdentificationInformation (probe saved to
+/tmp/flir_ident.bin) tests that against the bytes, and it does not hold.
+
+The three External-Accessory protocol descriptors (param 0x000A), decoded as
+nested TLVs (u16 length incl. its 4-byte header, u16 id, data):
+
+```
+config (id 0):  {0x0000=00, 0x0001="com.flir.rosebud.config", 0x0002=01}
+frame  (id 2):  {0x0000=02, 0x0001="com.flir.rosebud.frame",  0x0002=01}
+fileio (id 1):  {0x0000=01, 0x0001="com.flir.rosebud.fileio", 0x0002=01, 0x0003=00 00}
+```
+
+0x0003 is the NativeTransportComponentIdentifier. Only **fileio** carries one,
+and it resolves to the host transport component (param 0x0010 "Rosebud USB Host
+Transport", component id 0x0000). **frame carries no native-transport binding at
+all, and its descriptor is structurally identical to config's** apart from the
+protocol id and name. Yet frame resets and config is stable.
+
+So the reset is not native-transport bring-up on the frame path: there is no
+native transport bound to frame. The two transport components the camera
+advertises:
+
+```
+param 0x000F "Rosebud USB Device Transport"  component id 0x0003
+param 0x0010 "Rosebud USB Host Transport"    component id 0x0000
+```
+
+### What actually distinguishes reset from stable
+
+Nothing in the iAP2 descriptors does. config and frame are the same shape; the
+only differences are the protocol-id byte and the name. The split is therefore
+in the camera's application firmware: opening protocol 1 (file access) or 2
+(imaging) makes it start a heavier subsystem, and that bring-up aborts on a Mac
+host in a way protocol 0 (settings) never triggers. The camera emits no iAP2
+RST, no error message, and nothing on the vendor endpoints; it just stalls the
+control pipe and aborts within ~2 ms.
+
+### Net effect on the theories
+
+- Missing control message: refuted earlier (capability list complete).
+- Native transport on frame: refuted here (no binding; frame == config shape).
+- Frames on the vendor endpoint: refuted (zero bytes on 0x83/0x85 ever).
+- Host-supplies-the-second-link: no link to answer (nothing emitted).
+
+What remains is a camera-side subsystem abort triggered by the protocol id,
+whose cause is not expressed anywhere the host can read. Only an inline USB 2.0
+analyser capture of the working iPhone session can show what the phone does at
+StartEASession time that a Mac does not. The multi-agent pass sharpened the
+question and killed four hypotheses; it did not find a host-side unblock, and
+the byte evidence says one is unlikely to exist without that capture.
