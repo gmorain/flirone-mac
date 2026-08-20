@@ -50,6 +50,9 @@ from .profileplot import ProfilePlot
 SOURCE_USB = "Camera (USB)"
 SOURCE_SYNTHETIC = "Synthetic scene"
 SOURCE_REPLAY = "Replay folder..."
+PANEL_MIN_WIDTH = 300
+# Width reserved for the image and profile, independent of the control panel.
+IMAGE_AREA_WIDTH = 980
 SOURCE_STILL = "Radiometric image"
 
 
@@ -57,7 +60,6 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("FLIR One")
-        self.resize(1280, 820)
 
         self.measurements = MeasurementSet()
         self.planck: Planck = DEFAULT_PLANCK
@@ -92,7 +94,11 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter, 1)
-        layout.addWidget(self._build_panel())
+        panel = self._build_panel()
+        layout.addWidget(panel)
+        # Grow the window by whatever the panel needs, so restoring readable
+        # text does not come out of the image area.
+        self.resize(IMAGE_AREA_WIDTH + panel.width(), 820)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -151,12 +157,12 @@ class MainWindow(QMainWindow):
         a session: measurement conditions, parallax alignment, calibration.
         """
         tabs = QTabWidget()
-        tabs.setFixedWidth(300)
-        font = tabs.font()
-        font.setPointSize(max(font.pointSize() - 2, 10))
-        tabs.setFont(font)
         tabs.addTab(self._build_measure_tab(), "Measure")
         tabs.addTab(self._build_setup_tab(), "Setup")
+        # System font, and a width taken from what the controls actually need
+        # rather than a guess: shrinking the text to fit a chosen width made the
+        # panel hard to read.
+        tabs.setFixedWidth(max(PANEL_MIN_WIDTH, tabs.sizeHint().width()))
         return tabs
 
     @staticmethod

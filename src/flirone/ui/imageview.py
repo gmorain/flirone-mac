@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import QWidget
 
 from ..measure import Box, Line, MeasurementSet, Spot, coldspot, hotspot
@@ -17,6 +28,20 @@ TOOL_LINE = "line"
 # Overlay text sits on a photo, often at retina density, so it needs to be
 # larger than ordinary UI text to stay readable.
 LABEL_POINT_SIZE = 13
+# Markers are sized from the label text so the two stay in proportion when
+# either is adjusted: a 6px cross next to 13pt text reads as an afterthought.
+MARKER_ARM = round(LABEL_POINT_SIZE * 0.72)
+MARKER_STROKE = 2.0
+MARKER_CASING = MARKER_STROKE + 1.9
+
+
+@lru_cache(maxsize=1)
+def _label_metrics() -> QFontMetrics:
+    """Metrics for the overlay label font, for laying markers out around it."""
+    font = QFont()
+    font.setPointSize(LABEL_POINT_SIZE)
+    return QFontMetrics(font)
+
 
 _ACCENT = QColor(255, 255, 255)
 _SHADOW = QColor(0, 0, 0, 170)
@@ -242,10 +267,10 @@ class ThermalView(QWidget):
 
         if self.measurements.track_hotspot:
             x, y, v = hotspot(temps)
-            self._draw_spot(painter, x, y, f"{v:.1f}°", _HOT, "max")
+            self._draw_spot(painter, x, y, f"{v:.1f}°", _HOT, "max", below=True)
         if self.measurements.track_coldspot:
             x, y, v = coldspot(temps)
-            self._draw_spot(painter, x, y, f"{v:.1f}°", _COLD, "min")
+            self._draw_spot(painter, x, y, f"{v:.1f}°", _COLD, "min", below=True)
 
         if self._highlight is not None:
             self._draw_highlight(painter)
@@ -268,12 +293,13 @@ class ThermalView(QWidget):
         p = self._to_widget(x, y)
         painter.save()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(0, 0, 0, 200), 3.4))
-        painter.drawEllipse(p, 7.0, 7.0)
-        painter.setPen(QPen(QColor(120, 230, 255), 1.8))
-        painter.drawEllipse(p, 7.0, 7.0)
-        painter.drawLine(QPointF(p.x() - 11, p.y()), QPointF(p.x() - 4, p.y()))
-        painter.drawLine(QPointF(p.x() + 4, p.y()), QPointF(p.x() + 11, p.y()))
+        radius = MARKER_ARM * 0.78
+        painter.setPen(QPen(QColor(0, 0, 0, 200), MARKER_CASING))
+        painter.drawEllipse(p, radius, radius)
+        painter.setPen(QPen(QColor(120, 230, 255), MARKER_STROKE))
+        painter.drawEllipse(p, radius, radius)
+        painter.drawLine(QPointF(p.x() - radius - 4, p.y()), QPointF(p.x() - radius + 3, p.y()))
+        painter.drawLine(QPointF(p.x() + radius - 3, p.y()), QPointF(p.x() + radius + 4, p.y()))
         painter.restore()
 
     def _draw_drop_hint(self, painter: QPainter) -> None:
@@ -305,19 +331,21 @@ class ThermalView(QWidget):
         below: bool = False,
     ) -> None:
         p = self._to_widget(x, y)
-        horizontal = (QPointF(p.x() - 6, p.y()), QPointF(p.x() + 6, p.y()))
-        vertical = (QPointF(p.x(), p.y() - 6), QPointF(p.x(), p.y() + 6))
+        arm = MARKER_ARM
+        horizontal = (QPointF(p.x() - arm, p.y()), QPointF(p.x() + arm, p.y()))
+        vertical = (QPointF(p.x(), p.y() - arm), QPointF(p.x(), p.y() + arm))
         # Dark casing first, so the marker survives a saturated background.
-        painter.setPen(QPen(QColor(0, 0, 0, 190), 3.4))
+        painter.setPen(QPen(QColor(0, 0, 0, 190), MARKER_CASING))
         painter.drawLine(*horizontal)
         painter.drawLine(*vertical)
-        painter.setPen(QPen(colour, 1.6))
+        painter.setPen(QPen(colour, MARKER_STROKE))
         painter.drawLine(*horizontal)
         painter.drawLine(*vertical)
-        # Tracked extremes label downwards so they clear user spots, which often
-        # sit on the same hot feature and label upwards.
-        offset = 16 if below else -6
-        self._label(painter, p.x() + 8, p.y() + offset, f"{tag} {text}", colour)
+        # Tracked extremes label a full label-height downwards, so they clear the
+        # label of a user spot sitting on the same hot feature. A fixed gap
+        # stopped working once the text grew.
+        offset = arm + _label_metrics().height() if below else -(arm - 3)
+        self._label(painter, p.x() + arm + 3, p.y() + offset, f"{tag} {text}", colour)
 
     def _label(
         self, painter: QPainter, x: float, y: float, text: str, colour: QColor = _ACCENT

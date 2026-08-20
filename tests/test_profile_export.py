@@ -143,3 +143,20 @@ class TestAxisMaxLabels:
     def test_near_equal_lengths_collapse(self):
         """Rounding to whole pixels, 200.2 and 199.8 are the same length."""
         assert self.parts([200.2, 199.8]) == [("200 px", None)]
+
+
+def test_tracked_extremes_label_below_their_marker():
+    """Guard a flag that a later rewrite silently dropped.
+
+    Hot and cold markers must pass below=True so their labels clear a user spot
+    sitting on the same feature. Losing it puts both labels in the same place,
+    which is invisible to the linter and to every other test.
+    """
+    from pathlib import Path
+
+    source = Path("src/flirone/ui/imageview.py").read_text()
+    for tag in ('"max"', '"min"'):
+        call = source[
+            source.index(f"_HOT, {tag}") if tag == '"max"' else source.index(f"_COLD, {tag}") :
+        ][:80]
+        assert "below=True" in call, f"{tag} marker no longer labels below its marker"
