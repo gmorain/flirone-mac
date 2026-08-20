@@ -25,6 +25,28 @@ _SERIES = [
 PLOT_POINT_SIZE = 12
 
 
+def axis_max_parts(maxima: list[float]) -> list[tuple[str, int | None]]:
+    """Split the far-end axis label into (text, series index) pieces.
+
+    A series index means colour it as that line; None means muted. When every
+    line is the same length one shared label says so without clutter, and when
+    they differ each length is named in its own colour, because one figure would
+    name the first line and imply the rest matched it.
+    """
+    if not maxima:
+        return []
+    if len({round(m) for m in maxima}) == 1:
+        return [(f"{maxima[0]:.0f} px", None)]
+
+    parts: list[tuple[str, int | None]] = []
+    for i, value in enumerate(maxima):
+        if i:
+            parts.append((" / ", None))
+        parts.append((f"{value:.0f}", i))
+    parts.append((" px", None))
+    return parts
+
+
 @dataclass
 class _Series:
     line: Line
@@ -102,7 +124,9 @@ class ProfilePlot(QWidget):
         metrics = QFontMetrics(font)
         # Gutter wide enough for the widest axis label, plus a little air.
         pad_l = metrics.horizontalAdvance(f"{max(abs(lo), abs(hi)):.1f}") + 12
-        pad_r = metrics.horizontalAdvance("0000 px") // 2 + 10
+        # Room for the per-series maxima at the far end, which grow with the
+        # number of lines drawn.
+        pad_r = metrics.horizontalAdvance("0000") // 2 + 10
         pad_t = metrics.height() // 2 + 4
         pad_b = metrics.height() + 10
         return _Layout(
@@ -217,11 +241,26 @@ class ProfilePlot(QWidget):
         painter.setPen(QColor(150, 150, 160))
         baseline = self.height() - metrics.descent() - 3
         painter.drawText(QPointF(pad_l, baseline), "0 px")
-        far = f"{layout.series[0].distance[-1]:.0f} px"
-        painter.drawText(QPointF(pad_l + w - metrics.horizontalAdvance(far), baseline), far)
+        self._draw_axis_maxima(painter, layout, pad_l + w, baseline)
 
         if self._hover is not None:
             self._draw_hover(painter, layout)
+
+    def _draw_axis_maxima(
+        self, painter: QPainter, layout: _Layout, right: float, baseline: float
+    ) -> None:
+        """Label the far end of the axis with each line's own length."""
+        metrics = painter.fontMetrics()
+        muted = QColor(150, 150, 160)
+        parts = axis_max_parts([float(s.distance[-1]) for s in layout.series])
+        if not parts:
+            return
+
+        x = right - sum(metrics.horizontalAdvance(text) for text, _ in parts)
+        for text, series_index in parts:
+            painter.setPen(muted if series_index is None else _SERIES[series_index % len(_SERIES)])
+            painter.drawText(QPointF(x, baseline), text)
+            x += metrics.horizontalAdvance(text)
 
     def _draw_hover(self, painter: QPainter, layout: _Layout) -> None:
         si, index = self._hover

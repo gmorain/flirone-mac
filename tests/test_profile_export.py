@@ -104,3 +104,42 @@ def test_save_profiles_writes_one_file_per_line(field, tmp_path):
 
 def test_save_profiles_with_no_lines_writes_nothing(field, tmp_path):
     assert save_profiles(tmp_path, MeasurementSet(), field) == []
+
+
+class TestAxisMaxLabels:
+    """The far-end axis label when several lines of different lengths are drawn."""
+
+    @staticmethod
+    def parts(maxima):
+        from flirone.ui.profileplot import axis_max_parts
+
+        return axis_max_parts(maxima)
+
+    def test_no_lines_gives_nothing(self):
+        assert self.parts([]) == []
+
+    def test_single_line_is_one_muted_label(self):
+        assert self.parts([479.0]) == [("479 px", None)]
+
+    def test_equal_lengths_collapse_to_one_label(self):
+        """Three lines of the same length should not be written out three times."""
+        assert self.parts([200.0, 200.0, 200.0]) == [("200 px", None)]
+
+    def test_differing_lengths_are_named_per_series(self):
+        parts = self.parts([479.0, 256.0, 57.0])
+        numbers = [(text, idx) for text, idx in parts if idx is not None]
+        assert numbers == [("479", 0), ("256", 1), ("57", 2)]
+
+    def test_separators_and_suffix_are_muted(self):
+        parts = self.parts([479.0, 256.0])
+        muted = [text for text, idx in parts if idx is None]
+        assert muted == [" / ", " px"]
+
+    def test_series_index_matches_draw_order(self):
+        """The colour index must track position, so it matches the legend."""
+        parts = self.parts([10.0, 20.0, 30.0, 40.0])
+        assert [idx for _t, idx in parts if idx is not None] == [0, 1, 2, 3]
+
+    def test_near_equal_lengths_collapse(self):
+        """Rounding to whole pixels, 200.2 and 199.8 are the same length."""
+        assert self.parts([200.2, 199.8]) == [("200 px", None)]
