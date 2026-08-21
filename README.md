@@ -58,8 +58,9 @@ environment.
 
 ### Linux
 
-The library, the tests and the radiometric image tools run on Linux. The
-application itself is developed and tested on macOS.
+Everything runs on Linux, interface included. Development and release testing
+happen on macOS, and only live capture is unavailable, for the reason in the
+Status section rather than anything platform-specific.
 
 ```bash
 sudo apt install libimage-exiftool-perl libusb-1.0-0
@@ -106,14 +107,23 @@ uv run flirone
 
 ![The app on launch, waiting for an image](docs/ui-startup.png)
 
-It opens waiting for an image. Drop one on the window, on the Dock icon,
-or pass it on the command line.
+It opens waiting for an image. Drop one on the window, on the Dock icon, or pass
+it on the command line.
+
+### macOS
 
 Or build a double-clickable bundle:
 
 ```bash
 ./tools/make_app.sh
 ```
+
+### Linux
+
+`uv run flirone` is enough. There is no dedicated build for Linux yet.
+
+Qt ships its own platform plugins inside the venv, so nothing is needed beyond
+the two packages above.
 
 ## Calibration
 
