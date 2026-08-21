@@ -131,10 +131,10 @@ out of the FLIR APP1 segment (exiftool is used as a fallback).
 
 Open a JPEG shot with the FLIR One phone app by dropping it on the window,
 dropping it on the Dock icon, passing it on the command line, or `File > Open
-radiometric image` (⌘O). Unlike the live stream, these carry the camera's own calibration, so
-readings are absolute rather than relative. Emissivity, reflected apparent
-temperature, humidity and distance are read from the file and can then be
-adjusted, and the whole field is recomputed.
+radiometric image` (Ctrl+O, ⌘O on macOS). Unlike the live stream, these carry
+the camera's own calibration, so readings are absolute rather than relative.
+Emissivity, reflected apparent temperature, humidity and distance are read from
+the file and can then be adjusted, and the whole field is recomputed.
 
 The raw plane's byte order is resolved by physical plausibility rather than
 assumption: both orders are converted to temperature and scored against the
@@ -300,7 +300,8 @@ counts, the temperature field, the visible photograph, the rendered image, and
 the calibration and conditions in force.
 
 Line profiles are written as CSV alongside, one file per line, and can also be
-exported on their own with `File > Export line profile as CSV` (⌘E):
+exported on their own with `File > Export line profile as CSV` (Ctrl+E, ⌘E on
+macOS):
 
 ```
 # flirone line profile bed

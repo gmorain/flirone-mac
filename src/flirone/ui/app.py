@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -54,6 +54,19 @@ PANEL_MIN_WIDTH = 300
 # Width reserved for the image and profile, independent of the control panel.
 IMAGE_AREA_WIDTH = 980
 SOURCE_STILL = "Radiometric image"
+
+
+# Written once in portable form. Qt maps Ctrl to Command on macOS, so both the
+# binding and any label naming it have to be rendered per platform rather than
+# spelled out for one of them.
+SHORTCUT_CAPTURE = "Ctrl+S"
+SHORTCUT_EXPORT_PROFILE = "Ctrl+E"
+SHORTCUT_OPEN_IMAGE = "Ctrl+O"
+
+
+def shortcut_label(sequence: str) -> str:
+    """How this platform writes a shortcut: "Ctrl+S" on Linux, "\u2318S" on macOS."""
+    return QKeySequence(sequence).toString(QKeySequence.SequenceFormat.NativeText)
 
 
 class MainWindow(QMainWindow):
@@ -127,17 +140,17 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         capture = QAction("&Capture", self)
-        capture.setShortcut("Ctrl+S")
+        capture.setShortcut(SHORTCUT_CAPTURE)
         capture.triggered.connect(self._capture)
         file_menu.addAction(capture)
 
         export_profile = QAction("Export line &profile as CSV...", self)
-        export_profile.setShortcut("Ctrl+E")
+        export_profile.setShortcut(SHORTCUT_EXPORT_PROFILE)
         export_profile.triggered.connect(self._export_profiles)
         file_menu.addAction(export_profile)
 
         open_image = QAction("&Open radiometric image...", self)
-        open_image.setShortcut("Ctrl+O")
+        open_image.setShortcut(SHORTCUT_OPEN_IMAGE)
         open_image.triggered.connect(self._open_radiometric)
         file_menu.addAction(open_image)
         file_menu.addSeparator()
@@ -287,7 +300,7 @@ class MainWindow(QMainWindow):
         inner.addWidget(self.readout)
         box.addWidget(group, 1)
 
-        capture_button = QPushButton("Capture  (\u2318S)")
+        capture_button = QPushButton(f"Capture  ({shortcut_label(SHORTCUT_CAPTURE)})")
         capture_button.clicked.connect(self._capture)
         box.addWidget(capture_button)
         return page

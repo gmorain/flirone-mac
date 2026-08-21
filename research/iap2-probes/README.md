@@ -18,6 +18,7 @@ Roughly in the order they were written:
 | `probe_iap2_control.py` | identification, and the EA protocol list |
 | `probe_iap2_auth.py` | full authentication, certificate and challenge |
 | `probe_ea_video.py`, `probe_config_session.py` | EA sessions; config is accepted |
+| `probe_link_then_vendor.py` | link sync without auth leaves the vendor channel inert |
 | `probe_rosebud.py` | FLIR's own command framing over EA |
 | `probe_idle.py`, `probe_trend.py` | the failure is deterministic, not power |
 | `probe_ea_matrix.py` | fileio and frame sessions both reset the camera |

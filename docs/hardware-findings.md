@@ -470,3 +470,108 @@ outright.
 
 This is a host-side enumeration bug. It does not bear on the streaming blocker
 in sections 10 and 11.
+
+## 13. Linux replay: the fault is camera-side, not macOS
+
+Measured on Ubuntu 22.04.5, kernel 5.15.0-181, libusb over usbfs, same unit and
+adapter, camera on external power. Enumeration needed section 12's flag.
+
+### The EA session split reproduces exactly
+
+`probe_ea_matrix.py`, unmodified, on Linux:
+
+```
+A frame only, id 1       : frame(ea=1):DIED
+B config then frame      : config(ea=1):ok | frame(ea=2):DIED
+C frame, high session id : frame(ea=256):DIED
+D config, fileio, frame  : config(ea=1):ok | fileio(ea=2):DIED | frame:SKIPPED
+E config then fileio     : config(ea=1):ok | fileio(ea=2):DIED
+```
+
+Identical to macOS: protocol 0 is accepted, 1 and 2 kill the link. A different
+host stack, usbfs and libusb rather than IOKit, produces the same split. The
+macOS USB stack is therefore not the cause, and every host-side theory that
+depended on it is dead.
+
+The failure surfaced through libusb as `ENODEV`, and at URB level as `EPROTO`
+or `ESHUTDOWN`. usbmon shows why, below.
+
+### Wire level: the camera leaves the bus 2ms after accepting the write
+
+usbmon on bus 1 across all five trials. The StartEASession write always
+completes with status 0, so the camera accepts it at USB level:
+
+```
+S Bo:1:048:2 -115 27 = ff5a001b 40065601 ef404000 11ea0000 05000002 00060001 000176
+C Bo:1:048:2 0 27 >
+```
+
+Then the iAP2 IN pipe dies, with nothing received in between:
+
+| trial | session opened | failure | latency | bytes in first |
+|---|---|---|---|---|
+| A | frame, id 1 | EPROTO | 2.564 ms | 0 |
+| B | config then frame, id 2 | ESHUTDOWN | 1.932 ms | 0 |
+| C | frame, id 256 | EPROTO | 2.374 ms | 0 |
+| D | config then fileio, id 2 | ESHUTDOWN | 2.003 ms | 0 |
+
+1.9 to 2.6 ms, reproducing the ~2ms measured on macOS on an unrelated host
+stack. A config session, by contrast, is answered: 9 bytes arrive on 0x81 and
+the link continues.
+
+Decoded, the fatal and surviving writes differ by one byte:
+
+```
+config  ea00 0005 0000 00  0006 0001 0001   ACKed, 9 bytes back
+frame   ea00 0005 0000 02  0006 0001 0001   dead in 2.56 ms, nothing back
+fileio  ea00 0005 0000 01  0006 0001 0002   dead in 2.00 ms, nothing back
+                       ^^ protocol id
+```
+
+The device is not stalling. 0.8 ms after the EPROTO the hub reports the port
+empty:
+
+```
+GET_STATUS port 5 -> 00010100
+   wPortStatus 0x0100  PORT_POWER only, PORT_CONNECTION clear
+   wPortChange 0x0001  C_PORT_CONNECTION
+```
+
+So the camera accepts a write it never answers and drops off the bus 2ms later,
+emitting no iAP2 response, no RST and no stall handshake. Section 10 described
+this as stalling the control pipe; on Linux it is an outright disconnect, and it
+happens with only interface 0 claimed, which section 10 expected to leave the
+device enumerated. A firmware fault in the subsystem being started fits this
+better than any protocol-level refusal, which would have a way to say so.
+
+### A bare link does not unlock the vendor channel either
+
+Section 10 attributed the inert vendor channel to the camera switching into
+iAP2 mode at the handshake. Tested directly by `probe_link_then_vendor.py`:
+answer the SYN to stop the 4.69s watchdog, send no identification and no
+authentication, then run the reference driver's start sequence (alt 2->0, 1->0,
+1->1, the 0xCC-framed openFile and readFile, alt 2->1).
+
+Every step survives. Nothing ever arrives.
+
+| command endpoint | link | EP 0x83 | EP 0x85 |
+|---|---|---|---|
+| 0x04, fileio OUT | alive throughout | 0 bytes | 0 bytes |
+| 0x02, control OUT | alive throughout | 0 bytes | 0 bytes |
+
+Authentication is not what makes the vendor channel inert. A link carrying
+nothing but sync and acks does it too. That refutes the explanation offered in
+section 10.
+
+### What this leaves
+
+Taken with section 11, where fileio is the only protocol carrying a
+NativeTransportComponentIdentifier and it resolves to "Rosebud USB Host
+Transport", the consistent reading is that the vendor bulk endpoints are the
+iAP2 native transport rather than an independent Android-style channel. They
+carry nothing until the matching EA session opens, and opening fileio or frame
+is what kills the link. Inert without a session, fatal with one.
+
+This narrows the blocker rather than opening it, and settles where it lives.
+An analyser capture of a working iOS session is still the only route to what
+the phone does differently at StartEASession time.
