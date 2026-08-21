@@ -35,6 +35,8 @@ runs properly calibrated.
 
 ## Install
 
+### macOS
+
 ```bash
 brew install exiftool libusb
 uv venv --python 3.12
@@ -53,6 +55,48 @@ Two external tools are needed, for different halves of the application:
 Both are located by absolute path rather than through `PATH`, so they are still
 found from an app bundle launched by Finder, which inherits no shell
 environment. 
+
+### Linux
+
+The library, the tests and the radiometric image tools run on Linux. The
+application itself is developed and tested on macOS.
+
+```bash
+sudo apt install libimage-exiftool-perl libusb-1.0-0
+uv sync
+```
+
+Two host settings are needed before the camera will enumerate at all.
+
+**Switch USB enumeration to the old scheme.** Under Linux's default the camera
+answers the first descriptor request and then leaves the bus during the second
+port reset, so it never receives an address and re-attaches about once a second
+forever:
+
+```bash
+echo 1 | sudo tee /sys/module/usbcore/parameters/old_scheme_first
+```
+
+Make it permanent by adding `usbcore.old_scheme_first=1` to
+`GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, then `sudo update-grub`.
+The setting is global and safe to carry: it was the kernel's own default
+historically, and `use_both_schemes` keeps the new scheme as a fallback.
+
+**Add a udev rule**, or pyusb can only claim the camera as root:
+
+```bash
+sudo tee /etc/udev/rules.d/99-flirone.rules >/dev/null <<'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="09cb", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=usb
+```
+
+Your user has to be in `plugdev`. `ATTR{idVendor}` is lowercase hex with no
+`0x`; `0x09CB` matches nothing and fails silently.
+
+Section 12 of [docs/hardware-findings.md](docs/hardware-findings.md) has the
+usbmon trace behind both.
 
 ## Run
 
@@ -280,9 +324,16 @@ feature on the curve gets tied to a place in the scene.
 ## Diagnostics
 
 ```bash
-uv run python tools/probe.py          # descriptors and stream-start strategies
-uv run python tools/probe_matrix.py   # isolate a USB failure
+uv run flirone-probe           # descriptor tree, read-only
+uv run flirone-probe --open    # also set the configuration and claim the interfaces
 ```
+
+An idle camera re-enumerates every few seconds, so the probe polls rather than
+looking once; `--wait` sets for how long.
+
+The scripts in `research/iap2-probes/` are the evidence behind
+[docs/hardware-findings.md](docs/hardware-findings.md). They are unmaintained,
+excluded from lint and not part of the package.
 
 ## Credit
 

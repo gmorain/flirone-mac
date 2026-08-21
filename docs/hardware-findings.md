@@ -424,3 +424,49 @@ analyser capture of the working iPhone session can show what the phone does at
 StartEASession time that a Mac does not. The multi-agent pass sharpened the
 question and killed four hypotheses; it did not find a host-side unblock, and
 the byte evidence says one is unlikely to exist without that capture.
+
+## 12. Linux: the camera fails Linux's default enumeration scheme
+
+Measured on Ubuntu 22.04.5, kernel 5.15.0-181, libusb 1.0, same Lightning unit
+and adapter, serial `FLIRONEF02F9T00570A`.
+
+The camera never enumerates under Linux's default settings. It re-attaches about
+once a second indefinitely and `lsusb` never shows it. The kernel logs only
+`new high-speed USB device number N`, with no error, because a device that never
+finishes enumerating produces no disconnect message either. 537 attempts were
+recorded over ten minutes.
+
+usbmon shows the device is healthy and the failure is host-side:
+
+```
+S Ci:1:000:0 s 80 06 0100 0000 0040 64 <
+C Ci:1:000:0 0 18 = 12010002 00000040 cb099619 08010102 0301
+S Co:1:001:0 s 23 03 0004 0005 0000 0
+S Ci:1:001:0 s a3 00 0000 0005 0004 4
+C Ci:1:001:0 0 4 = 00011100
+```
+
+The device descriptor comes back complete and correct on every attempt, status
+0, identical to section 1. The hub then issues `SET_FEATURE(PORT_RESET)`, and
+the `GET_STATUS` that follows returns `wPortStatus 0x0100` with `wPortChange
+0x0011`: PORT_POWER alone, PORT_CONNECTION clear, C_PORT_CONNECTION and
+C_PORT_RESET set. The camera has left the bus. `SET_ADDRESS` is never attempted.
+
+Linux's default "new scheme" resets the port, reads the device descriptor,
+resets a second time, then assigns the address. This camera does not survive the
+second reset. The old scheme assigns the address first and resets once:
+
+```bash
+echo 1 | sudo tee /sys/module/usbcore/parameters/old_scheme_first
+```
+
+That fixes it, with no replug. The camera then enumerates completely, strings
+and all, and behaves as section 5 describes: it resets after 4 to 5 seconds when
+nothing talks to it, consistent with the 4.69s watchdog measured on macOS.
+
+Power is not the cause. `PORT_OVER_CURRENT` is never set, the descriptor is
+answered cleanly on every attempt, and a host-side software flag fixes it
+outright.
+
+This is a host-side enumeration bug. It does not bear on the streaming blocker
+in sections 10 and 11.
