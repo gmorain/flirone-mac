@@ -2,7 +2,7 @@
 
 ## What it is
 
-A macOS application for the FLIR One thermal camera. It shows a live dual-mode
+A desktop application for the FLIR One thermal camera, on macOS and Linux. It shows a live dual-mode
 preview of the thermal and visible cameras, opens radiometric images shot with
 the FLIR One phone app, and provides measurement tools that read absolute
 temperatures: spot meters, region statistics, line profiles and differences,
@@ -46,7 +46,7 @@ the readout colour rather than presenting a plausible number.
 - Cameras other than the FLIR One family.
 - Editing or retouching the visible image.
 - Any use of FLIR's proprietary SDK, or distribution of their software.
-- Windows and Linux, though only the packaging and USB layers are macOS-specific.
+- Windows, and packaged builds anywhere but macOS.
 
 ## Architecture
 

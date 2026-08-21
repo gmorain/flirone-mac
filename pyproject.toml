@@ -1,6 +1,6 @@
 [project]
 name = "flirone-mac"
-version = "0.1.0"
+version = "0.9.0"
 description = "macOS viewer and radiometric measurement tool for the FLIR One thermal camera"
 requires-python = ">=3.11"
 dependencies = [

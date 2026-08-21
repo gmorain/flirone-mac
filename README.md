@@ -14,13 +14,16 @@ calibration live on the Setup tab.
 
 ## Status
 
-The USB layer is solved and the application is complete and testable against
-synthetic and recorded frames.
+0.9.0 runs on macOS and Linux. Everything that works from a stored radiometric
+image is complete: measurement, alignment, distance, capture and export. Only
+live streaming is blocked.
 
 **Live streaming from a Lightning (iOS) FLIR One does not work yet.** The iAP2
 accessory handshake is implemented and the camera authenticates successfully,
 but it resets when asked to open its video session. The hardware is fine: it
-streams from the official iOS app through the same adapter. See
+streams from the official iOS app through the same adapter. Replaying the same
+stack on Linux reproduces the failure exactly, which puts the fault in the
+camera rather than in macOS. See
 [docs/hardware-findings.md](docs/hardware-findings.md) for the full trace and the
 list of eliminated causes.
 
@@ -279,7 +282,10 @@ the registration noise does. Several frames at each distance help: the tool
 least-squares them all, and noise falls as sqrt(n).
 
 After that the app shows an estimated distance whenever it aligns an image.
-Precision falls off quadratically, so this is a close-range tool:
+Precision falls off quadratically, so this is a close-range tool. These figures
+are the model, `dZ = Z^2 * sigma_dx / K`, evaluated at an assumed registration
+noise of 0.3 px. They are not measured, and that assumption has not yet been
+checked against a real camera:
 
 | distance | uncertainty |
 |---|---|

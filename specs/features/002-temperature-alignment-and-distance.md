@@ -61,6 +61,10 @@ One alignment type is shared by the reader, the renderer and the registration
 code, carrying fractional offsets in thermal pixels. A recovered alignment is
 that type plus a match quality.
 
+The uncertainty attached to a distance is `Z^2 * sigma_dx / K` with `sigma_dx`
+assumed at 0.3 px. The fit computes a real residual but does not yet feed it
+back, so the quoted uncertainty is modelled rather than measured.
+
 Covered by tests inverting the forward Planck function across −20 to 400 °C,
 recovering known shifts from synthetic scenes, asserting the refusal path for
 flat fields, and checking quadratic error growth in the distance estimate.
