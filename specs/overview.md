@@ -46,7 +46,8 @@ the readout colour rather than presenting a plausible number.
 - Cameras other than the FLIR One family.
 - Editing or retouching the visible image.
 - Any use of FLIR's proprietary SDK, or distribution of their software.
-- Windows, and packaged builds anywhere but macOS.
+- Windows.
+- Packaged builds anywhere but macOS. Linux runs the application from source.
 
 ## Architecture
 

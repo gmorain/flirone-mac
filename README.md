@@ -1,6 +1,7 @@
 # flirone-mac
 
-macOS viewer and radiometric measurement tool for the FLIR One thermal camera.
+Viewer and radiometric measurement tool for the FLIR One thermal camera, on
+macOS and Linux.
 
 Live dual-mode preview (thermal + visible), spot/box/line measurements with
 emissivity and atmospheric correction, and captures that can be reprocessed
@@ -14,9 +15,9 @@ calibration live on the Setup tab.
 
 ## Status
 
-0.9.0 runs on macOS and Linux. Everything that works from a stored radiometric
-image is complete: measurement, alignment, distance, capture and export. Only
-live streaming is blocked.
+0.9.5 runs on macOS and Linux. Everything that works from a stored radiometric
+image is complete: measurement, alignment, capture and export. Only live
+streaming is blocked.
 
 **Live streaming from a Lightning (iOS) FLIR One does not work yet.** The iAP2
 accessory handshake is implemented and the camera authenticates successfully,
@@ -248,6 +249,16 @@ distance in Conditions additionally expresses the size in millimetres.
 - Isotherm masking
 
 Left-click places or drags, right-click removes.
+
+Scroll to zoom, up to 16x, anchored on the pointer so the feature under it stays
+put. In Cursor mode a left-drag pans, so no middle button is needed. At
+fit-to-window the image is drawn at roughly its own size, which is too small to
+judge an alignment to the pixel.
+
+Blend and the three alignment values are sliders with the value beside them. On
+the two offset sliders a click beside the handle steps one pixel rather than
+jumping to where it landed, so a stray click does not discard a careful
+alignment; the arrow keys step by one as well.
 
 ## Captures
 

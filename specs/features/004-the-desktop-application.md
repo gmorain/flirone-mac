@@ -8,9 +8,10 @@ Depends: 002-temperature-and-alignment
 
 ## User
 
-A normal macOS application: it appears in the Dock with its own icon, accepts
-files dropped onto it, and opens ready for work rather than showing a
-placeholder scene.
+A normal desktop application: on macOS it appears in the Dock with its own
+icon, it accepts files dropped onto it, and it opens ready for work rather than
+showing a placeholder scene. Linux runs the same interface from source, with
+shortcuts rendered per platform; only macOS gets a packaged bundle.
 
 **Display.** The temperature field is drawn with a choice of palettes, including
 the iron palette thermographers expect and a grayscale for print. A user can
