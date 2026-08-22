@@ -7,7 +7,48 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QSlider,
+    QStyle,
+    QStyleOptionSlider,
+    QWidget,
+)
+
+
+class _StepSlider(QSlider):
+    """A slider whose groove clicks nudge by one step instead of jumping.
+
+    The macOS style jumps straight to the clicked position, which is useful for
+    a volume control and wrong for an alignment offset: a stray click throws
+    away a careful setting. Clicking beside the handle moves one step toward the
+    click; dragging the handle is untouched.
+    """
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            option = QStyleOptionSlider()
+            option.initFrom(self)
+            option.minimum = self.minimum()
+            option.maximum = self.maximum()
+            option.sliderPosition = self.value()
+            option.sliderValue = self.value()
+            option.orientation = self.orientation()
+            option.pageStep = self.pageStep()
+            handle = self.style().subControlRect(
+                QStyle.ComplexControl.CC_Slider,
+                option,
+                QStyle.SubControl.SC_SliderHandle,
+                self,
+            )
+            position = event.position().toPoint()
+            if not handle.contains(position):
+                forward = position.x() > handle.center().x()
+                self.setValue(self.value() + (1 if forward else -1) * self.singleStep())
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
 
 class SliderField(QWidget):
@@ -26,6 +67,7 @@ class SliderField(QWidget):
         maximum: float,
         step: float = 1.0,
         decimals: int = 0,
+        step_on_click: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -33,7 +75,8 @@ class SliderField(QWidget):
         self._decimals = decimals
         self._factor = round(1.0 / step)
 
-        self.slider = QSlider(Qt.Orientation.Horizontal)
+        slider_type = _StepSlider if step_on_click else QSlider
+        self.slider = slider_type(Qt.Orientation.Horizontal)
         self.slider.setRange(round(minimum * self._factor), round(maximum * self._factor))
         self.slider.setSingleStep(1)
         self.slider.setPageStep(max(1, self._factor))

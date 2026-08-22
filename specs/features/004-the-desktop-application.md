@@ -60,9 +60,10 @@ CSV or TIFF, and a folder of captures replays through the application as a
 source.
 
 Continuous quantities, the blend weight and the three alignment values, are
-sliders with their value beside them: dragging is for finding a setting, and the
-arrow keys still move one step at a time, which is what aligning to the pixel
-needs.
+sliders with their value beside them. Dragging is for finding a setting; on the
+two alignment offsets a click beside the handle nudges by a single pixel rather
+than jumping to where it landed, because a stray click should not discard a
+careful alignment. The arrow keys step by one as well.
 
 Controls are split by how often they are touched: input, palette, mode, tools
 and the readout are immediately to hand, while conditions, alignment,

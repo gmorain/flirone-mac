@@ -344,8 +344,8 @@ class MainWindow(QMainWindow):
         # within +/-30. A +/-400 range would put nearly three pixels under every
         # pixel of slider, too coarse to align with; the arrow keys still step
         # exactly one.
-        self.align_dx = SliderField(-150, 150, step=1, decimals=0)
-        self.align_dy = SliderField(-150, 150, step=1, decimals=0)
+        self.align_dx = SliderField(-150, 150, step=1, decimals=0, step_on_click=True)
+        self.align_dy = SliderField(-150, 150, step=1, decimals=0, step_on_click=True)
         form.addRow("Scale", self.align_scale)
         form.addRow("Shift X", self.align_dx)
         form.addRow("Shift Y", self.align_dy)
