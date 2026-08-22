@@ -27,6 +27,10 @@ TOOL_LINE = "line"
 
 # Overlay text sits on a photo, often at retina density, so it needs to be
 # larger than ordinary UI text to stay readable.
+MIN_ZOOM = 1.0
+MAX_ZOOM = 16.0
+ZOOM_STEP = 1.25
+
 LABEL_POINT_SIZE = 13
 # Markers are sized from the label text so the two stay in proportion when
 # either is adjusted: a 6px cross next to 13pt text reads as an afterthought.
@@ -61,6 +65,7 @@ class ThermalView(QWidget):
 
     measurements_changed = Signal()
     cursor_moved = Signal(int, int)  # sensor coordinates
+    zoom_changed = Signal(float)
 
     def __init__(self, measurements: MeasurementSet, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -77,6 +82,10 @@ class ThermalView(QWidget):
         self._drag_active = False
         self.placeholder = "waiting for frames"
         self._highlight: tuple[int, int] | None = None
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self._panning_from: QPointF | None = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     # -- data ---------------------------------------------------------------
 
@@ -100,8 +109,8 @@ class ThermalView(QWidget):
 
     # -- coordinate mapping -------------------------------------------------
 
-    def _target_rect(self) -> QRect:
-        """Where the sensor image is drawn, letterboxed to preserve aspect."""
+    def _fit_rect(self) -> QRect:
+        """Where the image sits at zoom 1: letterboxed, centred."""
         w, h = self._sensor_size
         if w == 0 or h == 0:
             return QRect(0, 0, 1, 1)
@@ -109,12 +118,103 @@ class ThermalView(QWidget):
         tw, th = int(w * scale), int(h * scale)
         return QRect((self.width() - tw) // 2, (self.height() - th) // 2, tw, th)
 
-    def _to_sensor(self, pos: QPointF | QPoint) -> tuple[int, int]:
+    def _target_rect(self) -> QRect:
+        """Where the sensor image is drawn, after zoom and pan.
+
+        Every coordinate conversion goes through here, so zooming needs no
+        changes in the measurement, hit-testing or overlay code.
+        """
+        fit = self._fit_rect()
+        if self._zoom == 1.0 and self._pan.isNull():
+            return fit
+        width = int(fit.width() * self._zoom)
+        height = int(fit.height() * self._zoom)
+        return QRect(
+            int(self.width() / 2 - width / 2 + self._pan.x()),
+            int(self.height() / 2 - height / 2 + self._pan.y()),
+            max(width, 1),
+            max(height, 1),
+        )
+
+    def _clamp_pan(self) -> None:
+        """Keep part of the image on screen, so it cannot be lost off an edge."""
+        rect = self._target_rect()
+        margin_x = self.width() * 0.25
+        margin_y = self.height() * 0.25
+        dx = dy = 0.0
+        if rect.right() < margin_x:
+            dx = margin_x - rect.right()
+        elif rect.left() > self.width() - margin_x:
+            dx = self.width() - margin_x - rect.left()
+        if rect.bottom() < margin_y:
+            dy = margin_y - rect.bottom()
+        elif rect.top() > self.height() - margin_y:
+            dy = self.height() - margin_y - rect.top()
+        if dx or dy:
+            self._pan = QPointF(self._pan.x() + dx, self._pan.y() + dy)
+
+    # -- zoom ---------------------------------------------------------------
+
+    @property
+    def zoom(self) -> float:
+        return self._zoom
+
+    def set_zoom(self, zoom: float, anchor: QPointF | None = None) -> None:
+        """Change magnification, keeping the point under `anchor` in place."""
+        zoom = float(np.clip(zoom, MIN_ZOOM, MAX_ZOOM))
+        if zoom == self._zoom:
+            return
+        if anchor is None:
+            anchor = QPointF(self.width() / 2, self.height() / 2)
+        # The sensor coordinate under the anchor must not move, so measure it
+        # before the change and put it back afterwards.
+        before = self._to_sensor_exact(anchor)
+        self._zoom = zoom
+        after = self._to_widget(before[0], before[1])
+        self._pan = QPointF(
+            self._pan.x() + (anchor.x() - after.x()),
+            self._pan.y() + (anchor.y() - after.y()),
+        )
+        self._clamp_pan()
+        self.zoom_changed.emit(self._zoom)
+        self.update()
+
+    def reset_view(self) -> None:
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self.zoom_changed.emit(self._zoom)
+        self.update()
+
+    def wheelEvent(self, event) -> None:
+        steps = event.angleDelta().y() / 120.0
+        if steps:
+            self.set_zoom(self._zoom * (ZOOM_STEP**steps), event.position())
+            event.accept()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.set_zoom(self._zoom * ZOOM_STEP)
+        elif key == Qt.Key.Key_Minus:
+            self.set_zoom(self._zoom / ZOOM_STEP)
+        elif key in (Qt.Key.Key_0, Qt.Key.Key_Escape):
+            self.reset_view()
+        else:
+            super().keyPressEvent(event)
+
+    def _to_sensor_exact(self, pos: QPointF | QPoint) -> tuple[float, float]:
+        """Fractional sensor coordinate, needed to anchor a zoom precisely."""
         rect = self._target_rect()
         w, h = self._sensor_size
-        x = (pos.x() - rect.x()) / max(rect.width(), 1) * w
-        y = (pos.y() - rect.y()) / max(rect.height(), 1) * h
-        return int(np.clip(x, 0, w - 1)), int(np.clip(y, 0, h - 1))
+        return (
+            (pos.x() - rect.x()) / max(rect.width(), 1) * w - 0.5,
+            (pos.y() - rect.y()) / max(rect.height(), 1) * h - 0.5,
+        )
+
+    def _to_sensor(self, pos: QPointF | QPoint) -> tuple[int, int]:
+        w, h = self._sensor_size
+        x, y = self._to_sensor_exact(pos)
+        return int(np.clip(round(x), 0, w - 1)), int(np.clip(round(y), 0, h - 1))
 
     def _to_widget(self, x: float, y: float) -> QPointF:
         rect = self._target_rect()
@@ -126,10 +226,29 @@ class ThermalView(QWidget):
 
     # -- interaction --------------------------------------------------------
 
+    def _begin_pan(self, position: QPointF) -> None:
+        self._panning_from = position
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _can_pan_with_left(self, x: int, y: int) -> bool:
+        """Left-drag pans in Cursor mode when it would otherwise do nothing.
+
+        With no tool selected and no spot under the pointer there is nothing to
+        drag, so the gesture is free. Holding Alt pans whatever the tool, for
+        anyone without a middle button.
+        """
+        return self.tool == TOOL_NONE and self._nearest_spot(x, y) is None
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._begin_pan(event.position())
+            return
         x, y = self._to_sensor(event.position())
         if event.button() == Qt.MouseButton.RightButton:
             self._remove_near(x, y)
+            return
+        if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            self._begin_pan(event.position())
             return
         if self.tool == TOOL_SPOT:
             self.measurements.spots.append(Spot(x, y))
@@ -140,10 +259,25 @@ class ThermalView(QWidget):
             self._drag_start = (x, y)
             self._drag_now = (x, y)
             return
-        # No active tool: grab the nearest spot to move it.
+        # No active tool: grab the nearest spot to move it, or pan.
         self._dragging_spot = self._nearest_spot(x, y)
+        if self._dragging_spot is None:
+            self._begin_pan(event.position())
+
+    def _update_pan_cursor(self, x: int, y: int) -> None:
+        if self._can_pan_with_left(x, y) and self._zoom > 1.0:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.unsetCursor()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._panning_from is not None:
+            delta = event.position() - self._panning_from
+            self._pan = QPointF(self._pan.x() + delta.x(), self._pan.y() + delta.y())
+            self._panning_from = event.position()
+            self._clamp_pan()
+            self.update()
+            return
         x, y = self._to_sensor(event.position())
         self.cursor_moved.emit(x, y)
         if self._drag_start is not None:
@@ -153,8 +287,14 @@ class ThermalView(QWidget):
             self._dragging_spot.x, self._dragging_spot.y = x, y
             self.measurements_changed.emit()
             self.update()
+        else:
+            self._update_pan_cursor(x, y)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._panning_from is not None:
+            self._panning_from = None
+            self.unsetCursor()
+            return
         if self._drag_start is not None and self._drag_now is not None:
             (x0, y0), (x1, y1) = self._drag_start, self._drag_now
             if abs(x1 - x0) > 1 or abs(y1 - y0) > 1:
@@ -272,6 +412,9 @@ class ThermalView(QWidget):
             x, y, v = coldspot(temps)
             self._draw_spot(painter, x, y, f"{v:.1f}°", _COLD, "min", below=True)
 
+        if self._zoom != 1.0:
+            self._draw_zoom_badge(painter)
+
         if self._highlight is not None:
             self._draw_highlight(painter)
 
@@ -286,6 +429,22 @@ class ThermalView(QWidget):
                 painter.drawRect(QRect(a.toPoint(), b.toPoint()))
             else:
                 painter.drawLine(a, b)
+
+    def _draw_zoom_badge(self, painter: QPainter) -> None:
+        painter.save()
+        font = QFont()
+        font.setPointSize(LABEL_POINT_SIZE)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        text = f"{self._zoom:.1f}x  ·  scroll to zoom, drag to pan, 0 to reset"
+        width = metrics.horizontalAdvance(text)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 165))
+        painter.drawRoundedRect(6, 6, width + 12, metrics.height() + 6, 3, 3)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QColor(235, 240, 250))
+        painter.drawText(QPointF(12, 6 + metrics.ascent() + 3), text)
+        painter.restore()
 
     def _draw_highlight(self, painter: QPainter) -> None:
         """Ring marking the pixel under the cursor in the profile plot."""
