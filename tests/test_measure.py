@@ -81,3 +81,86 @@ def test_clear_removes_everything(field):
     measurements.boxes.append(Box(0, 0, 5, 5))
     measurements.clear()
     assert not measurements.spots and not measurements.boxes
+
+
+class TestSpotResolution:
+    """A spot on a target smaller than a few detector pixels reads a blend.
+
+    Sizes are judged on the detector grid, not the array: files from the phone
+    app are upscaled 4x, which adds no information and would otherwise make
+    every target look four times better resolved than it is.
+    """
+
+    @staticmethod
+    def target(native_px, array=(640, 480), upscale=4, hot=80.0, cold=20.0):
+        import numpy as np
+
+        field = np.full(array, cold)
+        half = max(native_px * upscale // 2, 1)
+        cy, cx = array[0] // 2, array[1] // 2
+        field[cy - half : cy + half, cx - half : cx + half] = hot
+        return field, cx, cy
+
+    def test_upscale_is_detected(self):
+        from flirone.measure import native_upscale
+
+        assert native_upscale((640, 480)) == 4
+        assert native_upscale((160, 120)) == 1
+
+    @pytest.mark.parametrize("native_px", [1, 2])
+    def test_small_targets_are_flagged(self, native_px):
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(native_px)
+        quality = spot_quality(field, x, y)
+        assert not quality.resolved
+        assert "too small" in quality.describe()
+
+    @pytest.mark.parametrize("native_px", [3, 6])
+    def test_marginal_targets_are_noted_but_allowed(self, native_px):
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(native_px)
+        quality = spot_quality(field, x, y)
+        assert quality.resolved
+        assert not quality.comfortable
+        assert "caution" in quality.describe()
+
+    def test_large_targets_pass_silently(self):
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(15)
+        quality = spot_quality(field, x, y)
+        assert quality.resolved and quality.comfortable
+        assert quality.describe() == ""
+
+    def test_uniform_field_is_resolved(self):
+        import numpy as np
+
+        from flirone.measure import spot_quality
+
+        quality = spot_quality(np.full((640, 480), 25.0), 240, 320)
+        assert quality.resolved and quality.comfortable
+
+    def test_distance_converts_the_size_to_millimetres(self):
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(3)
+        quality = spot_quality(field, x, y, distance_m=1.0, ifov_mrad=5.05)
+        assert quality.footprint_mm == pytest.approx(5.05, rel=1e-3)
+        assert quality.feature_mm == pytest.approx(3 * 5.05, rel=0.05)
+
+    def test_without_distance_it_still_judges_resolution(self):
+        """Distance only adds millimetres; the pixel test needs no calibration."""
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(1)
+        quality = spot_quality(field, x, y)
+        assert not quality.resolved
+        assert quality.feature_mm is None
+
+    def test_a_cold_target_on_a_warm_field_is_judged_too(self):
+        from flirone.measure import spot_quality
+
+        field, x, y = self.target(1, hot=10.0, cold=40.0)
+        assert not spot_quality(field, x, y).resolved

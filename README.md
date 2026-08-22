@@ -162,7 +162,7 @@ Drops also accept a saved calibration (`.json`) and a folder of captures, which
 starts replaying it. Dropping a calibration together with an image applies the
 calibration first.
 
-## Alignment and distance
+## Alignment
 
 The visible and thermal cameras sit a few millimetres apart, so the visible
 image must be scaled and shifted onto the thermal one.
@@ -174,11 +174,17 @@ ratio and negating. Read correctly they are good, and the app applies them the
 moment an image is opened.
 
 They are not the whole story, though. The camera derives them from the
-**user-set object distance**, usually left at its 1 m default. The two lenses
-sit side by side, which in portrait is the image's vertical axis, so:
+**user-set object distance**, usually left at its 1 m default. Parallax appears
+on the horizontal axis, so:
 
-- `dx` is the fixed boresight offset and does not depend on distance
-- `dy` carries the parallax and is only as good as the distance setting
+- `dx` carries the parallax, so it is only as good as that distance setting
+- `dy` is the fixed boresight offset and does not depend on distance
+
+Which axis carries the parallax was established by measurement, not assumption:
+the published optics (160x120 over 46 x 35 degrees) turn a fitted offset-versus-
+distance slope into a lens separation, and only the horizontal axis gives one
+near the 9 to 11 mm the camera actually has. The vertical axis implied 103
+degrees of field, which is impossible.
 
 `Auto-align from edges` measures both from the image. The two images share
 almost no intensity relationship but do share structure, so registration runs on
@@ -202,101 +208,35 @@ Measured on a FLIR One Gen 2 frame:
 | quantity | recorded | measured | agreement |
 |---|---|---|---|
 | scale | 1.2379 | 1.2300 | 0.6% |
-| boresight `dx` | +24.44 px | +24.15 px | **0.29 px** |
-| parallax `dy` | −12.44 px | −16.99 px | 4.54 px |
+| `dx` (parallax) | +24.44 px | +24.15 px | 0.29 px |
+| `dy` (boresight) | −12.44 px | −16.99 px | 4.54 px |
 
 Edge cross-correlation improves from 0.262 using the recorded values to 0.360
-using the measured ones. The boresight axis agreeing to a third of a pixel is
-what says the method works; the parallax axis disagreeing by 4.5 px is the 1 m
-assumption being wrong for this scene.
+using the measured ones, so measuring the alignment beats trusting the recorded
+one whenever the object distance was left at its default.
 
-### Distance
+### Spot size
 
-Parallax carries distance: `dx(Z) = dx_inf + K/Z`, where `dx_inf` is the offset
-at infinity and `K = f * baseline`. A single image cannot give `Z`, because one
-measured offset has two unknowns behind it. Two shots at accurately known
-distances fix both:
+A radiometric reading is only trustworthy when the target fills several detector
+elements. Below three the pixel averages target and surroundings and the reading
+is pulled toward the background, which is the commonest way to get a confidently
+wrong temperature.
 
-```bash
-uv run python tools/calibrate_distance.py near.jpg=0.3 far.jpg=2.0
-```
+The cursor readout warns when the feature under it is too small, judged on the
+**detector** grid: files from the phone app arrive upscaled 4x, which adds no
+information, so a target that looks 12 px wide in the file is 3 px on the sensor.
 
-#### Choosing the calibration scene
+With one detector pixel subtending 5.05 mrad (160x120 over 46 x 35 degrees):
 
-This is the part that decides whether calibration works at all. Registration
-matches *structure*, so the scene must carry structure in both bands at once.
+| distance | one pixel | minimum target (3 px) | comfortable (10 px) |
+|---|---|---|---|
+| 0.3 m | 1.5 mm | 5 mm | 15 mm |
+| 0.5 m | 2.5 mm | 8 mm | 25 mm |
+| 1 m | 5.1 mm | 15 mm | 51 mm |
+| 2 m | 10.1 mm | 30 mm | 101 mm |
 
-**Thermal relief is the hard requirement.** A room-temperature wall spans under
-a degree; its apparent edges are sensor noise, which correlates with anything
-and yields a confident-looking but meaningless answer. Aim for tens of degrees
-across the frame. The tool refuses anything under 2 °C span and warns under 8.
-
-**Horizontal edges matter more than vertical ones.** The two lenses sit side by
-side, which in portrait is the image's *vertical* axis, so parallax appears in
-`dy` — and only horizontal edges constrain a vertical shift. A scene of vertical
-stripes leaves the quantity being measured almost free.
-
-**Keep it flat and face-on.** Everything should be at one depth. A 5 cm depth
-spread at 0.3 m is 17% of the distance, which corrupts the near measurement
-badly; at 2 m the same spread costs almost nothing.
-
-**Avoid repeating patterns.** Phase correlation locks onto any period in the
-scene, so a regular checkerboard invites a confident answer one period out. An
-irregular arrangement of blocks has a single unambiguous peak.
-
-**Fill the frame at both distances.** Thermal coverage is 0.17 × 0.23 m at
-0.25 m, and 1.4 × 1.9 m at 2 m, so the near and far shots need different-sized
-subjects.
-
-Good targets, in rough order of convenience:
-
-- **A heated print bed, face on**, with an irregular scatter of metal objects or
-  aluminium-tape strips on it. Flat, tens of degrees of contrast, edges in both
-  bands and both orientations.
-- **A radiator or heated towel rail.** Horizontal fins are exactly the edges
-  `dy` needs, and it is flat enough at both ranges.
-- **Aluminium tape on matte card**, in an irregular blocky pattern. This works
-  through *emissivity* contrast rather than temperature: the tape reflects the
-  cool room while the card radiates its own warmth, so the pattern appears in
-  thermal and in RGB simultaneously, and grows sharper if the card is warmed
-  slightly first.
-
-#### Geometry of the two shots
-
-The fit is linear in 1/Z, so the lever arm is `1/Z_near - 1/Z_far` and the
-**near shot dominates completely**:
-
-| near / far | K uncertainty |
-|---|---|
-| 1.0 / 2.0 m | 15% |
-| 1.0 / 3.0 m | 11% |
-| 0.5 / 3.0 m | 4.6% |
-| 0.3 / 3.0 m | 2.5% |
-| 0.25 / 3.0 m | 2.1% |
-
-Pushing the far shot past 3 m is nearly pointless: 3 m to *infinity* is worth
-about 0.2%. Getting the near shot from 1 m down to 0.3 m is worth a factor of
-four. So shoot as close as both cameras still focus, and measure that distance
-to about ±5 mm from the lens face, since a 20 mm error at 0.25 m costs more than
-the registration noise does. Several frames at each distance help: the tool
-least-squares them all, and noise falls as sqrt(n).
-
-After that the app shows an estimated distance whenever it aligns an image.
-Precision falls off quadratically, so this is a close-range tool. These figures
-are the model, `dZ = Z^2 * sigma_dx / K`, evaluated at an assumed registration
-noise of 0.3 px. They are not measured, and that assumption has not yet been
-checked against a real camera:
-
-| distance | uncertainty |
-|---|---|
-| 0.5 m | ±0.01 m |
-| 1 m | ±0.05 m |
-| 2 m | ±0.22 m |
-| 5 m | ±1.34 m |
-| 10 m | meaningless |
-
-It also assumes one dominant depth. A scene with strong edges at several depths
-returns a weighted average, not a depth map.
+The check needs no calibration; it works on the image alone. Setting the
+distance in Conditions additionally expresses the size in millimetres.
 
 ## Measurement tools
 

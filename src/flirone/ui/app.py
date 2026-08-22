@@ -36,10 +36,8 @@ from .. import flirjpeg, registration
 from ..calibration import DEFAULT_PLANCK, Conditions, Planck, Trust, raw_to_celsius
 from ..compose import MODE_EDGES, MODES, Alignment, compose
 from ..decode import DecodedFrame
-from ..distance import ParallaxModel
-from ..distance import estimate as distance_estimate
 from ..export import profile_csv, save_capture, save_profiles
-from ..measure import Delta, MeasurementSet
+from ..measure import Delta, MeasurementSet, spot_quality
 from ..palettes import DEFAULT_PALETTE, PALETTES
 from ..planck_import import load as load_planck
 from ..sources import ReplayFrameSource, StillFrameSource, SyntheticFrameSource, UsbFrameSource
@@ -359,9 +357,6 @@ class MainWindow(QMainWindow):
         self.align_status = QLabel("not aligned")
         self.align_status.setWordWrap(True)
         form.addRow(self.align_status)
-        self.distance_label = QLabel()
-        self.distance_label.setWordWrap(True)
-        form.addRow("Distance", self.distance_label)
         box.addWidget(group)
 
         group = QGroupBox("Calibration")
@@ -470,7 +465,19 @@ class MainWindow(QMainWindow):
             self.cursor_label.setText("")
             return
         unit = "" if self.planck.trusted else " (relative)"
-        self.cursor_label.setText(f"x {x}  y {y}   {self.temps[y, x]:.1f} °C{unit}")
+        text = f"x {x}  y {y}   {self.temps[y, x]:.1f} °C{unit}"
+
+        # A reading on a target smaller than a few detector pixels is a blend of
+        # the target and its surroundings, which is the commonest way to get a
+        # confidently wrong temperature.
+        # The distance is whatever the user set in Conditions: a figure they
+        # measured beats one estimated from parallax, and it is already there.
+        quality = spot_quality(self.temps, x, y, distance_m=self.conditions.distance_m)
+        note = quality.describe()
+        if note:
+            text += f"   ·  {note}"
+        self.cursor_label.setText(text)
+        self.cursor_label.setStyleSheet("" if quality.resolved else "color: #d08030;")
 
     def _on_profile_hover(self, series: int, x: int, y: int, value: float, index: int) -> None:
         """Tie a point on the profile curve back to its pixel in the image."""
@@ -688,7 +695,6 @@ class MainWindow(QMainWindow):
         except registration.InsufficientContrast as exc:
             QApplication.restoreOverrideCursor()
             self.align_status.setText("scene too flat to align")
-            self.distance_label.setText("needs thermal contrast")
             QMessageBox.information(self, "Auto-align", str(exc))
             return
         except Exception as exc:
@@ -710,33 +716,8 @@ class MainWindow(QMainWindow):
             f"scale {result.scale:.3f}, shift {result.dx:+.0f}/{result.dy:+.0f}, "
             f"match {result.confidence:.2f}"
         )
-        # The lenses are side by side, which in portrait is the image's vertical
-        # axis, so parallax lives in dy.
-        self._update_distance(result.dy)
         self._show_import_card(result)
         self.status.showMessage(f"Aligned: {result}", 6000)
-
-    def _update_distance(self, dx: float) -> None:
-        """Show the subject distance implied by the measured parallax.
-
-        Needs a calibrated model: a single offset cannot separate the fixed
-        boresight offset from the distance-dependent term. See
-        tools/calibrate_distance.py.
-        """
-        model_path = Path.home() / ".flirone" / "parallax.json"
-        if not model_path.exists():
-            self.distance_label.setText("not calibrated - run tools/calibrate_distance.py")
-            return
-        try:
-            model = ParallaxModel.from_json(model_path)
-        except ValueError as exc:
-            self.distance_label.setText(f"bad calibration: {exc}")
-            return
-        except Exception:
-            self.distance_label.setText("calibration file unreadable")
-            return
-        result = distance_estimate(model, dx)
-        self.distance_label.setText(result.format() if result else "out of range")
 
     def _sync_alignment_widgets(self, alignment) -> None:
         for widget, value in (
@@ -784,7 +765,7 @@ class MainWindow(QMainWindow):
             measured_dy=result.dy,
             match_measured=result.confidence,
             match_recorded=match_recorded,
-            distance=self.distance_label.text(),
+            distance="",
         )
         card = ImportCard(summary, self)
         card.show()

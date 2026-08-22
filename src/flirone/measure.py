@@ -150,6 +150,112 @@ class Delta:
         return self.a.measure(temps).mean - self.b.measure(temps).mean
 
 
+# A radiometric spot reading is only trustworthy when the target fills several
+# detector elements. Below three the pixel averages target and surroundings and
+# the reading is pulled toward the background; ten is the usual figure for a
+# reading you would quote.
+MIN_RESOLVED_PX = 3.0
+COMFORTABLE_PX = 10.0
+
+# The FLIR One Gen 2 detector is 160x120. Files from the phone app arrive
+# upscaled, which adds no information, so feature sizes must be judged on the
+# native grid rather than on the array.
+NATIVE_SHORT_SIDE = 120
+
+# Angular size of one detector pixel, from the published FLIR One Gen 2 optics:
+# 160x120 with a 46 x 35 degree field. Both axes agree to 1.5%, as square pixels
+# should. Taken from the specification rather than derived from our own parallax
+# fit, which depended on a hand-measured lens separation.
+IFOV_MRAD = 5.05
+
+
+@dataclass(frozen=True)
+class SpotQuality:
+    """Whether a spot reading is resolved, and by how much."""
+
+    feature_px: float  # extent of the feature, in NATIVE detector pixels
+    resolved: bool
+    comfortable: bool
+    footprint_mm: float | None = None  # one native pixel, at a known distance
+    feature_mm: float | None = None
+
+    def describe(self) -> str:
+        if self.resolved and self.comfortable:
+            return ""
+        size = f"{self.feature_px:.1f} px"
+        if self.feature_mm is not None:
+            size += f" ({self.feature_mm:.0f} mm)"
+        if not self.resolved:
+            return f"target only {size}: too small to measure, reading blends with background"
+        return f"target {size}: marginal, quote with caution"
+
+
+def native_upscale(shape: tuple[int, int]) -> int:
+    """How many array pixels make one detector pixel."""
+    return max(1, int(round(min(shape) / NATIVE_SHORT_SIDE)))
+
+
+def spot_quality(
+    temps: np.ndarray,
+    x: int,
+    y: int,
+    distance_m: float | None = None,
+    ifov_mrad: float = IFOV_MRAD,
+) -> SpotQuality:
+    """Judge whether the feature under a spot is large enough to measure.
+
+    Measures the feature's extent at half its contrast against the local
+    background, which is what decides whether a detector element sees the target
+    alone or a mixture. The answer is in detector pixels, so upsampled files are
+    not flattered.
+
+    Needs no distance: distance only converts the size to millimetres.
+    """
+    h, w = temps.shape
+    upscale = native_upscale(temps.shape)
+    window = int(12 * upscale)
+    x0, x1 = max(x - window, 0), min(x + window + 1, w)
+    y0, y1 = max(y - window, 0), min(y + window + 1, h)
+    patch = temps[y0:y1, x0:x1]
+    value = float(temps[y, x])
+
+    background = float(np.nanpercentile(patch, 10 if value >= np.nanmedian(patch) else 90))
+    contrast = value - background
+    if abs(contrast) < 1e-6:
+        # Flat surroundings: the target is at least the whole window.
+        extent = float(min(patch.shape))
+    else:
+        half = background + contrast / 2.0
+        mask = (patch >= half) if contrast > 0 else (patch <= half)
+        # Extent through the spot itself, along each axis.
+        row = mask[y - y0, :]
+        col = mask[:, x - x0]
+        extent = float(min(_run_length(row, x - x0), _run_length(col, y - y0)))
+
+    feature_px = extent / upscale
+    footprint_mm = distance_m * ifov_mrad if distance_m else None
+    return SpotQuality(
+        feature_px=feature_px,
+        resolved=feature_px >= MIN_RESOLVED_PX,
+        comfortable=feature_px >= COMFORTABLE_PX,
+        footprint_mm=footprint_mm,
+        feature_mm=footprint_mm * feature_px if footprint_mm else None,
+    )
+
+
+def _run_length(mask: np.ndarray, index: int) -> int:
+    """Length of the contiguous True run containing `index`."""
+    if index >= len(mask) or not mask[index]:
+        return 0
+    start = index
+    while start > 0 and mask[start - 1]:
+        start -= 1
+    end = index
+    while end < len(mask) - 1 and mask[end + 1]:
+        end += 1
+    return end - start + 1
+
+
 def hotspot(temps: np.ndarray) -> tuple[int, int, float]:
     """Location and value of the hottest pixel."""
     idx = int(np.nanargmax(np.where(np.isfinite(temps), temps, -np.inf)))

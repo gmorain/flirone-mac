@@ -2,7 +2,7 @@
 
 Status:  shipped
 
-Depends: 002-temperature-alignment-and-distance
+Depends: 002-temperature-and-alignment
 
 ---
 
@@ -22,6 +22,12 @@ saturated pixels would otherwise consume most of the palette and flatten
 everything else; the true range, manual limits and a locked range are all
 available.
 
+**Zoom.** The image magnifies up to 16x under the scroll wheel, anchored on the
+pointer so the feature being examined stays put. Panning is a left-drag in
+Cursor mode, which is otherwise an idle gesture, so it needs no middle button. This
+is what makes a sub-pixel judgement possible: at fit-to-window the image is
+drawn at roughly its own size, so alignment cannot be checked closely.
+
 **Measurement.** Tools are placed directly on the image and read absolute
 temperatures. Spot meters read a point. Region boxes report minimum, mean,
 maximum and spread. A line produces a temperature profile plotted beneath it,
@@ -32,6 +38,13 @@ which matters on a live image where the peak moves. Every reading appears in a
 table, labelled and in degrees, and is shown as untrustworthy when the
 calibration in use did not come from the camera that took the picture. Labels
 are drawn on their own backing so they stay legible over a saturated hot region.
+
+**Spot validity.** A radiometric reading is only trustworthy when the target
+fills several detector elements; below three the pixel averages target and
+surroundings and reads low. The cursor warns when the feature under it is too
+small, judged on the detector grid rather than on the upscaled file, so an
+upsampled image is not flattered. The check needs no calibration; a distance set
+in Conditions additionally gives the size in millimetres.
 
 **Saving.** Line profiles export as CSV, one row per pixel step, carrying the
 pixel coordinates and the calibration and conditions they were computed under, so
@@ -82,11 +95,13 @@ the result by eye, not asserted.
 
 - [x] Palettes, display modes and robust percentile scaling
 - [x] Spots, regions, line profiles, differences and extreme tracking
+- [x] Warning when a spot's target is too small to measure
 - [x] Readout table with calibration state surfaced
 - [x] Legible labels over any background
 - [x] Captures with everything needed to reprocess
 - [x] Line profile CSV export with pixel coordinates and provenance
 - [x] Cursor and profile hover reporting pixel coordinates, cross-linked
 - [x] CSV and float TIFF export, optional GeoTIFF, replayable folders
+- [x] Zoom and pan, with every coordinate conversion going through one rect
 - [x] Two-tab layout split by frequency of use
 - [x] App bundle with icon and document types

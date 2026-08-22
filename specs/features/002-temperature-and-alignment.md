@@ -1,4 +1,4 @@
-# 002 — Temperature, alignment and distance
+# 002 — Temperature and alignment
 
 Status:  shipped
 
@@ -8,8 +8,8 @@ Depends: 001-getting-images-in
 
 ## User
 
-Three things are derived from a frame, and all three are shown to the user with
-their limits attached.
+Two things are derived from a frame, and both are shown with their limits
+attached.
 
 **Temperature.** Every reading is degrees Celsius derived from raw radiance
 counts, not a colour or a relative value. The conversion accounts for the
@@ -27,12 +27,6 @@ from a subject distance the user is unlikely to have set. Measuring from the
 image itself corrects that. A scene too thermally flat to align is reported as
 such, with the figures, rather than yielding a confident result derived from
 sensor noise.
-
-**Distance.** The same offset that aligns the images also carries how far away
-the subject is, so once calibrated the application reports it with an
-uncertainty attached. That uncertainty grows quickly: it is a close-range
-measurement, useful to a couple of metres and meaningless across a room, and it
-says so rather than printing a confident number.
 
 ## Tech
 
@@ -52,22 +46,13 @@ warned, because a room-temperature wall spans under a degree and its apparent
 edges are noise, which correlates with anything. Recorded offsets are converted
 from visible-image pixels and inverted sign, not used raw.
 
-Distance follows `dy_inf + K/Z`. A single image cannot give it, since one
-measured offset has two unknowns behind it. Parallax appears on the axis of the
-lens baseline, which in portrait is the vertical axis; using the other axis
-measures the fixed boresight and yields nothing.
-
 One alignment type is shared by the reader, the renderer and the registration
 code, carrying fractional offsets in thermal pixels. A recovered alignment is
 that type plus a match quality.
 
-The uncertainty attached to a distance is `Z^2 * sigma_dx / K` with `sigma_dx`
-assumed at 0.3 px. The fit computes a real residual but does not yet feed it
-back, so the quoted uncertainty is modelled rather than measured.
-
 Covered by tests inverting the forward Planck function across −20 to 400 °C,
 recovering known shifts from synthetic scenes, asserting the refusal path for
-flat fields, and checking quadratic error growth in the distance estimate.
+flat fields.
 
 ## Tasks
 
@@ -76,4 +61,3 @@ flat fields, and checking quadratic error growth in the distance estimate.
 - [x] Gradient-magnitude registration with cross-correlation scoring
 - [x] Thermal contrast guard with explicit refusal
 - [x] Conversion of recorded offsets to the internal convention
-- [x] Distance from parallax with uncertainty
