@@ -198,6 +198,7 @@ def estimate(
     scales: np.ndarray | None = None,
     refine: bool = True,
     scale_prior: float | None = None,
+    lock_scale: bool = False,
 ) -> Registration:
     """Recover scale and offset by matching edges between the two images.
 
@@ -229,7 +230,15 @@ def estimate(
         return best
 
     if scales is None:
-        if scale_prior is not None:
+        if scale_prior is not None and lock_scale:
+            # Scale is a fixed ratio of the two fields of view, recorded by the
+            # camera. Re-deriving it per frame introduces a stretch error that
+            # no single offset can undo: zero at the centre and several pixels
+            # at the edges, which corrupts both the estimate and any subsequent
+            # judgement by eye.
+            scales = np.array([scale_prior])
+            refine = False
+        elif scale_prior is not None:
             # Scale is a fixed ratio of the two fields of view. When the file
             # states it there is nothing to search, only to refine: sweeping
             # wide lets the optimiser walk to the range boundary whenever the
