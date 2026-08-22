@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -44,6 +43,7 @@ from ..sources import ReplayFrameSource, StillFrameSource, SyntheticFrameSource,
 from .imageview import TOOL_BOX, TOOL_LINE, TOOL_NONE, TOOL_SPOT, ThermalView
 from .importcard import ImportCard, ImportSummary
 from .profileplot import ProfilePlot
+from .widgets import SliderField
 
 SOURCE_USB = "Camera (USB)"
 SOURCE_SYNTHETIC = "Synthetic scene"
@@ -216,9 +216,7 @@ class MainWindow(QMainWindow):
         self.palette_combo.addItems(list(PALETTES))
         self.palette_combo.setCurrentText(DEFAULT_PALETTE)
         form.addRow("Palette", self.palette_combo)
-        self.blend_spin = QDoubleSpinBox()
-        self.blend_spin.setRange(0.0, 1.0)
-        self.blend_spin.setSingleStep(0.05)
+        self.blend_spin = SliderField(0.0, 1.0, step=0.01, decimals=2)
         self.blend_spin.setValue(0.6)
         form.addRow("Blend", self.blend_spin)
         self.scale_combo = QComboBox()
@@ -340,14 +338,14 @@ class MainWindow(QMainWindow):
         box.addWidget(group)
 
         group, form = self._group("Visible alignment")
-        self.align_scale = QDoubleSpinBox()
-        self.align_scale.setRange(0.5, 2.0)
-        self.align_scale.setSingleStep(0.01)
+        self.align_scale = SliderField(0.8, 1.6, step=0.001, decimals=3)
         self.align_scale.setValue(1.0)
-        self.align_dx = QSpinBox()
-        self.align_dx.setRange(-400, 400)
-        self.align_dy = QSpinBox()
-        self.align_dy.setRange(-400, 400)
+        # Measured offsets sit within about +/-25 px, and the recorded ones
+        # within +/-30. A +/-400 range would put nearly three pixels under every
+        # pixel of slider, too coarse to align with; the arrow keys still step
+        # exactly one.
+        self.align_dx = SliderField(-150, 150, step=1, decimals=0)
+        self.align_dy = SliderField(-150, 150, step=1, decimals=0)
         form.addRow("Scale", self.align_scale)
         form.addRow("Shift X", self.align_dx)
         form.addRow("Shift Y", self.align_dy)

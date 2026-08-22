@@ -59,6 +59,11 @@ temperatures that should have been recorded. Temperature grids also export as
 CSV or TIFF, and a folder of captures replays through the application as a
 source.
 
+Continuous quantities, the blend weight and the three alignment values, are
+sliders with their value beside them: dragging is for finding a setting, and the
+arrow keys still move one step at a time, which is what aligning to the pixel
+needs.
+
 Controls are split by how often they are touched: input, palette, mode, tools
 and the readout are immediately to hand, while conditions, alignment,
 calibration and output location sit behind a second tab. The window title states
