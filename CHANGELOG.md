@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.5
 
 Zoom and pan on the image, up to 16x, anchored on the pointer. At fit-to-window
 the image is drawn at roughly its own size, so a sub-pixel alignment cannot be
@@ -15,6 +15,13 @@ the detector grid rather than on the file, which arrives upscaled 4x and would
 otherwise flatter every target by a factor of four. The threshold comes from the
 published optics, 160x120 over 46 by 35 degrees, so 5.05 mrad per pixel. The
 check needs no calibration.
+
+Blend and the three alignment values are sliders with their value beside them.
+On the two alignment offsets a click beside the handle nudges a single pixel
+rather than jumping to where it landed, since a stray click should not discard a
+carefully found alignment. Their range narrows from plus or minus 400 to 150:
+measured offsets sit within about 25, and the old range put nearly three pixels
+under every pixel of slider.
 
 **Removed: distance from parallax.** It shipped in 0.9.0 and has been taken out
 rather than finished. It barely affected temperature at the ranges this camera
