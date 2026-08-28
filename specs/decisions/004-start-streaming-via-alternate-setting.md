@@ -28,5 +28,9 @@ a timeout.
 The same code path works on both platforms, since the API call does the right
 thing on Linux too.
 
-Note this fixes the transport only. On Lightning cameras the accessory handshake
-is a separate and still-unresolved blocker; see feature 001.
+Note this fixes the transport only, and it is the Android path. Lightning
+cameras do not start streaming this way at all: the alternate settings are still
+selected through the API, for the same IOKit reason, but what actually starts
+the stream is a `setOption` command over the iAP2 configuration session. That
+was unknown when this decision was written and is recorded in section 14 of
+`docs/hardware-findings.md`.

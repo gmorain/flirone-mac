@@ -7,7 +7,9 @@ import pytest
 
 from flirone.calibration import (
     DEFAULT_PLANCK,
+    FLIR_ONE_LIVE_SCALE,
     Conditions,
+    CountScale,
     Planck,
     Trust,
     atmospheric_transmission,
@@ -126,3 +128,97 @@ def test_short_serials_never_match():
 
     assert not serials_match("AB12", "AB12")
     assert serials_match("F02F9T00570", "FLIRONEF02F9T00570A")
+
+
+# --- the live count scale ----------------------------------------------------
+
+# Measured on a FLIR One Gen 2, serial F02F9T00570: an ice-water slurry and
+# boiling water, both fixed by physics, plus two targets read by the official
+# iOS app on the same camera. Section 15 of docs/hardware-findings.md.
+LIVE_CAMERA = Planck(r1=18453.355, r2=0.012509181, b=1460.6, f=1.0, o=-1731.0, serial="F02F9T00570")
+# The scale measured for this unit, converted to the reference-plane form. It is
+# within one percent of the bit-depth shift below, and the difference is
+# degenerate with the emissivity assumed for water.
+LIVE_SCALE = CountScale(factor=3.9576, offset=213.7, source="ice and boiling water")
+LIVE_POINTS = [(2246.3, 0.0), (7745.8, 99.5), (3167.5, 26.0), (3637.0, 35.0)]
+WATER = Conditions(emissivity=0.96, reflected_c=22.0, atmospheric_c=22.0, distance_m=0.3)
+
+
+def test_live_counts_convert_to_the_measured_temperatures():
+    """Within the accuracy of the camera, which is about 3 C."""
+    for counts, expected in LIVE_POINTS:
+        got = float(raw_to_celsius(np.array([[counts]]), LIVE_CAMERA, WATER, LIVE_SCALE)[0, 0])
+        assert got == pytest.approx(expected, abs=1.5)
+
+
+def test_the_same_counts_without_the_scale_are_absurd():
+    """The bug this exists to fix: live counts read about a hundred degrees low."""
+    got = float(raw_to_celsius(np.array([[3167.5]]), LIVE_CAMERA, WATER)[0, 0])
+    assert got < -50
+
+
+def test_no_scale_leaves_reference_counts_alone():
+    """A radiometric JPEG is already on the reference plane and must not move."""
+    counts = np.array([[12269.0]])
+    plain = raw_to_celsius(counts, LIVE_CAMERA, WATER)
+    assert float(plain[0, 0]) == pytest.approx(22.0, abs=1.0)
+
+
+def test_mapping_to_the_reference_plane_is_what_it_says():
+    counts = np.array([[2000.0, 4000.0]])
+    mapped = FLIR_ONE_LIVE_SCALE.to_reference(counts)
+    assert list(mapped[0]) == [8000.0, 16000.0]
+
+
+def test_the_default_is_the_bit_depth_shift():
+    """A FLIR One with no calibration of its own still reads absolute."""
+    assert (FLIR_ONE_LIVE_SCALE.factor, FLIR_ONE_LIVE_SCALE.offset) == (4.0, 0.0)
+
+
+def test_the_bare_factor_of_four_matches_what_was_measured():
+    """Two fitted parameters buy nothing over the factor the bit depths predict."""
+    for counts, expected in LIVE_POINTS:
+        got = float(
+            raw_to_celsius(np.array([[counts]]), LIVE_CAMERA, WATER, FLIR_ONE_LIVE_SCALE)[0, 0]
+        )
+        assert got == pytest.approx(expected, abs=2.0)
+
+
+def test_a_non_positive_factor_is_refused():
+    with pytest.raises(ValueError, match="factor"):
+        CountScale(factor=0.0, offset=0.0).validated()
+
+
+def test_the_counts_are_not_linear_in_temperature():
+    """Rules out the stream being Lepton TLinear output, which would need no Planck.
+
+    A straight line in temperature gets two free parameters, the same as the
+    scale, and is fitted here on all four points rather than two. It still
+    cannot follow them, because radiance curves away from temperature over this
+    range. Section 15 of docs/hardware-findings.md.
+    """
+    counts = np.array([c for c, _ in LIVE_POINTS])
+    truth = np.array([t for _, t in LIVE_POINTS])
+    gain, offset = np.polyfit(truth, counts, 1)
+    predicted = (counts - offset) / gain
+    assert np.abs(predicted - truth).max() > 3.0
+
+
+# --- cross-check against an independent implementation ------------------------
+
+# Produced by flirimageextractor's raw2temp, itself a port of Glenn Tattersall's
+# Thermimage, on this camera's constants at emissivity 0.95, reflected 22 C,
+# atmospheric 20 C, 50% humidity. Independent code for the same published model,
+# so it checks the arithmetic rather than the physics. Section 16 of
+# docs/hardware-findings.md.
+XCHECK_RAW = [12301.0, 15000.0, 17744.0, 20000.0, 23220.0]
+XCHECK_C = [22.189184, 36.996657, 50.256895, 60.176828, 73.179077]
+
+
+def test_conversion_matches_an_independent_implementation():
+    """At zero range, where no atmospheric convention is in play, exactly."""
+    conditions = Conditions(
+        emissivity=0.95, reflected_c=22.0, atmospheric_c=20.0, humidity=0.5, distance_m=0.0
+    )
+    got = raw_to_celsius(np.array(XCHECK_RAW), LIVE_CAMERA, conditions)
+    assert list(got) == pytest.approx(XCHECK_C, abs=1e-5)

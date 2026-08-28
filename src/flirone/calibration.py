@@ -91,11 +91,31 @@ class Planck:
         return self.trust.absolute
 
     def validated(self) -> Planck:
-        """Reject constants that cannot describe a real sensor."""
+        """Reject constants that cannot describe a real sensor.
+
+        Positivity alone is not enough. A misread record can yield values that
+        are positive and absurd, and those give temperatures that are merely
+        wrong rather than obviously broken, so the magnitudes are bounded too.
+        The bounds are wide: they exist to catch a parse landing on the wrong
+        bytes, not to police a genuine unit.
+        """
         if not (self.r1 > 0 and self.r2 > 0 and self.b > 0):
             raise ValueError(
                 f"non-physical Planck constants (R1={self.r1}, R2={self.r2}, B={self.b}); "
                 "all three must be positive"
+            )
+        out_of_range = (
+            not 1.0 <= self.r1 <= 1e9
+            or not 1e-9 <= self.r2 <= 1e3
+            or not 100.0 <= self.b <= 1e5
+            or not 0.0 < self.f <= 100.0
+            or not -1e6 <= self.o <= 1e6
+        )
+        if out_of_range:
+            raise ValueError(
+                f"implausible Planck constants (R1={self.r1:g}, R2={self.r2:g}, "
+                f"B={self.b:g}, F={self.f:g}, O={self.o:g}); this is usually a "
+                "misread calibration record rather than an unusual camera"
             )
         return self
 
@@ -124,6 +144,44 @@ DEFAULT_PLANCK = Planck(
     trust=Trust.REFERENCE,
     source="fnoop/flirone-v4l2 reference unit",
 )
+
+
+@dataclass(frozen=True)
+class CountScale:
+    """How one stream's counts sit on the plane the Planck constants describe.
+
+        reference_raw = counts * factor + offset
+
+    The FLIR One's USB stream is not on that plane: it is the Lepton's 14-bit
+    output, where the plane is 16-bit, so the factor is four and the offset is
+    zero. Section 15 of docs/hardware-findings.md measures it and records how an
+    earlier parameterisation of this class, in radiance rather than on the
+    reference plane, produced a wrong conclusion by making the simple statement
+    hard to write.
+
+    A frame already on the reference plane carries no CountScale at all rather
+    than an identity one, since "no conversion needed" and "converted by a
+    factor of one" are different claims.
+    """
+
+    factor: float = 4.0
+    offset: float = 0.0
+    source: str = "unknown"
+
+    def validated(self) -> CountScale:
+        if not self.factor > 0:
+            raise ValueError(f"count scale factor must be positive, got {self.factor}")
+        return self
+
+    def to_reference(self, counts: np.ndarray) -> np.ndarray:
+        return np.asarray(counts, dtype=np.float64) * self.factor + self.offset
+
+
+# What a FLIR One's live stream is on, absent a measurement for the individual
+# camera. A bit-depth shift is a property of the product rather than of a serial
+# number, and the Android work reached the same factor years earlier from the
+# other variant, so this is a default rather than an assumption about one unit.
+FLIR_ONE_LIVE_SCALE = CountScale(4.0, 0.0, "Lepton 14-bit on a 16-bit plane")
 
 
 @dataclass(frozen=True)
@@ -183,6 +241,7 @@ def raw_to_celsius(
     raw: np.ndarray,
     planck: Planck = DEFAULT_PLANCK,
     conditions: Conditions | None = None,
+    scale: CountScale | None = None,
 ) -> np.ndarray:
     """Convert raw sensor counts to degrees Celsius.
 
@@ -191,6 +250,8 @@ def raw_to_celsius(
     self-emission, so those last two are subtracted before inverting Planck.
     """
     conditions = (conditions or Conditions()).validated()
+    if scale is not None:
+        raw = scale.validated().to_reference(raw)
     eps = conditions.emissivity
     tau = atmospheric_transmission(conditions)
 

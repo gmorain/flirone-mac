@@ -1,6 +1,6 @@
 # 001 — Getting images in
 
-Status:  in-progress
+Status:  shipped
 
 ---
 
@@ -57,17 +57,34 @@ Dropped files are treated as untrusted: only images, calibrations and
 directories are accepted, and Pillow's decode size is bounded so a crafted or
 corrupt image cannot exhaust memory.
 
+Streaming from a Lightning model is started the way the iOS app starts it,
+which an analyser capture of a working session settled: authenticate first and
+identify second, open one accessory session for configuration only, read the
+camera's file listing and empty the pipe it arrives on, then ask for the stream
+by command. Frames are then ordinary bulk transfers. Opening an accessory
+session for video or file access is what earlier attempts did and no real host
+does; the camera answers that by leaving the bus.
+
+Completing the handshake stops the camera's watchdog permanently, so a camera
+that has streamed never re-announces itself and must be reset before it will
+talk again. Whether a camera is usable is therefore decided by claiming it, not
+by watching the bus: only one process can hold it, and a camera held elsewhere
+looks identical to a free one.
+
 **Unverified — no hardware.** The vendor protocol path has never been exercised
 against a camera that reaches it, because the only camera available is a
-Lightning model, blocked below.
+Lightning model, which does not use it.
 
-**Known gap.** On Lightning models, requesting the video session resets the
-camera deterministically. Every host-side explanation has been ruled out by
-experiment and the hardware is proven healthy, so the difference lies inside
-Apple's iAP2 implementation, whose specification is under NDA. Settling it needs
-an analyser capture of a working session. The full evidence, including what was
-excluded and how, is in `docs/hardware-findings.md`; the scripts are in
-`research/iap2-probes/`.
+Live counts are not on the plane the constants assume. The stream is the
+Lepton's 14-bit output where that plane is 16-bit, so counts are four times
+lower. A frame records which plane it is on, and a capture records it too, so
+that a live capture reopened later is not converted as though it came from a
+stored image. The factor is a constant rather than a per-camera setting: a bit
+depth belongs to the product, not to a serial number, and nothing needs
+calibrating before a camera reads absolute.
+
+The full evidence, including what was excluded and how, is in
+`docs/hardware-findings.md`; the scripts are in `research/iap2-probes/`.
 
 ## Tasks
 
@@ -80,4 +97,8 @@ excluded and how, is in `docs/hardware-findings.md`; the scripts are in
 - [x] iAP2 handshake through authentication, yielding the camera serial
 - [x] Interchangeable sources: camera, file, replay folder, synthetic
 - [x] Bounded decode of untrusted files
-- [ ] External Accessory session for video — blocked, see above
+- [x] Accessory session and command sequence that make a Lightning unit stream
+- [x] Recovery from a camera whose handshake left it without a watchdog
+- [x] Live counts converted to absolute temperature
+- [x] The count scale carried on the frame and into the capture
+- [ ] The Lightning bring-up exercised on Linux, which is 1.0.0

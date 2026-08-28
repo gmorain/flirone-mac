@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from .. import flirjpeg, registration
 from ..calibration import DEFAULT_PLANCK, Conditions, Planck, Trust, raw_to_celsius
+from ..calibration_store import CalibrationStore
 from ..compose import MODE_EDGES, MODES, Alignment, compose
 from ..decode import DecodedFrame
 from ..export import profile_csv, save_capture, save_profiles
@@ -85,6 +86,10 @@ class MainWindow(QMainWindow):
         # Serial of the camera that produced the data on screen, when known.
         # Constants adopted from elsewhere are checked against it.
         self.current_serial: str | None = None
+        self.calibrations = CalibrationStore()
+        # Serial of the live camera we have already offered stored constants
+        # for, so a match is adopted once per connection rather than per frame.
+        self._store_checked_for: str | None = None
         self._locked_range: tuple[float, float] | None = None
         self._frame_times: list[float] = []
 
@@ -156,6 +161,14 @@ class MainWindow(QMainWindow):
         calib = QAction("Load calibration from radiometric JPEG...", self)
         calib.triggered.connect(self._load_calibration)
         file_menu.addAction(calib)
+
+        self.forget_camera_action = QAction("Forget this camera's calibration", self)
+        self.forget_camera_action.triggered.connect(self._forget_this_camera)
+        file_menu.addAction(self.forget_camera_action)
+
+        forget_all = QAction("Forget all stored calibrations...", self)
+        forget_all.triggered.connect(self._forget_all_calibrations)
+        file_menu.addAction(forget_all)
 
         folder = QAction("Set capture folder...", self)
         folder.triggered.connect(self._choose_folder)
@@ -515,6 +528,11 @@ class MainWindow(QMainWindow):
             return False
 
         self.planck = adopted
+        # Remember it, so this camera stays calibrated between sessions and
+        # swapping cameras picks up the right constants rather than the last
+        # ones loaded. Constants with no serial are refused by the store.
+        if adopted.trust is not Trust.MISMATCH:
+            self.calibrations.remember(adopted)
         self._update_calib_label()
         if adopted.trust is Trust.MISMATCH:
             QMessageBox.warning(
@@ -527,6 +545,65 @@ class MainWindow(QMainWindow):
             )
         self.status.showMessage(f"Calibration: {adopted.trust.describe()}", 6000)
         return True
+
+    def _adopt_stored_for_live_camera(self) -> None:
+        """Apply remembered constants when a camera identifies itself.
+
+        The live stream carries no calibration, but the accessory handshake
+        reports the camera's serial. A stored entry whose serial matches came
+        from this very unit, which is the condition that makes constants
+        absolute rather than merely adopted.
+        """
+        sled = getattr(self.source, "sled", None)
+        serial = (sled or {}).get("serialNumberBoard")
+        if not serial:
+            return
+        self.current_serial = serial
+        if serial == self._store_checked_for:
+            return
+        self._store_checked_for = serial
+
+        stored = self.calibrations.find(serial)
+        if stored is None:
+            return
+        self.planck = stored
+        self._update_calib_label()
+        self.status.showMessage(f"Calibration restored for camera {serial}", 6000)
+
+    def _forget_this_camera(self) -> None:
+        serial = self.current_serial
+        if not serial:
+            QMessageBox.information(
+                self, "Calibration", "No camera is identified, so there is nothing to forget."
+            )
+            return
+        if not self.calibrations.forget(serial):
+            QMessageBox.information(self, "Calibration", f"Nothing stored for camera {serial}.")
+            return
+        self.planck = DEFAULT_PLANCK
+        self._store_checked_for = None
+        self._update_calib_label()
+        self.status.showMessage(f"Forgot the calibration for {serial}", 6000)
+
+    def _forget_all_calibrations(self) -> None:
+        entries = self.calibrations.entries()
+        if not entries:
+            QMessageBox.information(self, "Calibration", "No calibrations are stored.")
+            return
+        listing = "\n".join(f"  {e.label}" for e in entries)
+        confirm = QMessageBox.question(
+            self,
+            "Forget all stored calibrations",
+            f"Forget the constants for {len(entries)} camera(s)?\n\n{listing}\n\n"
+            "Readings will go back to being relative until a calibration is loaded again.",
+        )
+        if confirm is not QMessageBox.StandardButton.Yes:
+            return
+        dropped = self.calibrations.forget_all()
+        self.planck = DEFAULT_PLANCK
+        self._store_checked_for = None
+        self._update_calib_label()
+        self.status.showMessage(f"Forgot {dropped} stored calibration(s)", 6000)
 
     def _update_calib_label(self) -> None:
         """Say which of the three trust states the current constants are in."""
@@ -870,12 +947,14 @@ class MainWindow(QMainWindow):
             error = getattr(self.source, "error", None)
             self.source_status.setText(f"{status}\n{error}" if error else status)
 
+            self._adopt_stored_for_live_camera()
+
         frame = self.source.latest(timeout=0.0) if self.source is not None else None
         if frame is None:
             return
 
         self.frame = frame
-        self.temps = raw_to_celsius(frame.raw, self.planck, self.conditions)
+        self.temps = raw_to_celsius(frame.raw, self.planck, self.conditions, frame.scale)
 
         now = time.monotonic()
         self._frame_times = [t for t in self._frame_times + [now] if now - t < 2.0]

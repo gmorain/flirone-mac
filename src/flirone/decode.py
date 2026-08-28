@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image
 
+from .calibration import CountScale
 from .protocol import RawFrame
 
 
@@ -23,6 +24,10 @@ class DecodedFrame:
     raw: np.ndarray  # uint16 sensor counts, shape (h, w)
     visible: np.ndarray | None  # uint8 RGB from the visible camera
     status: dict
+    # How these counts relate to the scale the Planck constants assume. None
+    # means they are already on it, which is true of everything read from a
+    # radiometric JPEG and false of everything off the live stream.
+    scale: CountScale | None = None
 
     @property
     def shape(self) -> tuple[int, int]:

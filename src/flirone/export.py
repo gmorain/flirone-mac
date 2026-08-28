@@ -120,13 +120,28 @@ def save_capture(
     np.savetxt(out / "temperature_celsius.csv", temps, delimiter=",", fmt="%.3f")
 
     # Everything needed to replay or recompute.
+    # The scale travels with the counts. Without it a live capture reopened
+    # later is indistinguishable from one taken off a stored image, and would
+    # be converted as though it were.
+    payload = {"raw": frame.raw}
     if frame.visible is not None:
-        np.savez_compressed(out / "capture.npz", raw=frame.raw, visible=frame.visible)
-    else:
-        np.savez_compressed(out / "capture.npz", raw=frame.raw)
+        payload["visible"] = frame.visible
+    if frame.scale is not None:
+        payload["live_factor"] = np.float64(frame.scale.factor)
+        payload["live_offset"] = np.float64(frame.scale.offset)
+    np.savez_compressed(out / "capture.npz", **payload)
 
     meta = {
         "captured_at": datetime.now().astimezone().isoformat(),
+        "count_scale": (
+            None
+            if frame.scale is None
+            else {
+                "factor": frame.scale.factor,
+                "offset": frame.scale.offset,
+                "source": frame.scale.source,
+            }
+        ),
         "sensor": {"width": int(temps.shape[1]), "height": int(temps.shape[0])},
         "planck": {
             "R1": planck.r1,

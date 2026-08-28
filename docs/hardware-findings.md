@@ -1,7 +1,10 @@
 # FLIR One on macOS: hardware findings
 
 Measured on macOS 26.6.2, Apple Silicon, libusb 1.0, against a FLIR One with a
-Lightning connector via a USB-C adapter.
+Lightning connector via a USB-C adapter. Sections 12 and 13 are Linux and say
+so; section 14 onwards is an analyser capture of an iPhone driving the same
+camera. Where a later section overturns an earlier one, the earlier one is
+marked rather than deleted.
 
 ## 1. The Lightning unit enumerates as a normal USB device
 
@@ -62,7 +65,13 @@ ep_to_pipeRef: pipe 1 on interface 2 matches
 This is implemented in `src/flirone/usb_link.py`. Anyone hitting #729 on macOS
 should start there.
 
-## 3. This Lightning unit does not stream
+## 3. This Lightning unit does not stream from the vendor protocol
+
+**Section 14 settles this: the unit streams, and does so over `0x85` exactly as
+the vendor path expected. What was missing was the accessory handshake in front
+of it, not anything in the transport.** The observations below stand as a
+description of the camera before that handshake; the heading originally read
+"does not stream", which was true of what had been tried and not of the camera.
 
 With the host side fully correct, the camera still sends zero bytes on `0x85`.
 What it does instead, reproducibly:
@@ -345,10 +354,15 @@ the USB level rather than at the iAP2 level.
 
 ### Frame data never appears on the vendor endpoints
 
+**This conclusion is wrong. Section 14 overturns it with an analyser capture of
+a working session, where video arrives on 0x85 exactly as this hypothesis
+predicted.** The observation below stands; the inference drawn from it does not.
+
 With interfaces 1 and 2 claimed and alt-1 selected, and background readers on
 both vendor bulk INs (0x83, 0x85) running before and during the frame session
-open, **nothing ever arrives on 0x83 or 0x85**. The "frames come over the vendor
-endpoint once the EA session opens" hypothesis is not supported.
+open, nothing ever arrives on 0x83 or 0x85. What that actually showed is that
+opening the frame EA session never reaches a streaming state, not that the
+endpoints are unused: a real host never opens that session at all.
 
 ### iAP2 auth followed by the vendor init does NOT reset
 
@@ -575,3 +589,497 @@ is what kills the link. Inert without a session, fatal with one.
 This narrows the blocker rather than opening it, and settles where it lives.
 An analyser capture of a working iOS session is still the only route to what
 the phone does differently at StartEASession time.
+
+## 14. The iPhone capture: we were opening a session no real host opens
+
+An inline Cynthion capture of the official iOS app streaming from this camera,
+against the same unit and adapter, answers the blocker. Two files, working and
+failing, in `research/Cynthion-captures/` (untracked, large).
+
+Three things differ from every probe written before it.
+
+### The phone authenticates first and identifies second
+
+| phone | every probe up to now |
+|---|---|
+| RequestAuthenticationCertificate | StartIdentification |
+| RequestAuthenticationChallengeResponse | IdentificationAccepted |
+| AuthenticationSucceeded | RequestAuthenticationCertificate |
+| StartIdentification | RequestAuthenticationChallengeResponse |
+| IdentificationAccepted | AuthenticationSucceeded |
+
+### It opens one EA session, for config, and never for fileio or frame
+
+Its only `StartEASession` is byte-identical to the config one we already send:
+
+```
+phone : 40 40 00 11 ea 00 00 05 00 00 00 00 06 00 01 00 01
+ours  : 40 40 00 11 ea 00 00 05 00 00 02 00 06 00 01 00 01   (frame)
+                                    ^^ protocol id
+```
+
+Sections 6 through 13 were spent characterising the camera's reaction to a
+session no host ever opens. The reaction is real and reproducible, and it is
+also irrelevant: opening protocol 1 or 2 is simply not part of the protocol.
+
+### Streaming is a command, not a session
+
+Over the config session, framed exactly as `rosebud.py` already builds them:
+
+```
+-> {"type":"openFile","data":{"mode":"r","path":"CameraFiles.zip"}}
+<- {"type":"openFileStatus","data":{"path":"CameraFiles.zip","streamIdentifier":10,"mode":"r"}}
+-> {"type":"readFile","data":{"streamIdentifier":10}}
+-> {"type":"setOption","data":{"option":"stream","value":true}}
+<- {"type":"setOptionStatus","data":{"option":"stream","value":-1}}
+```
+
+`setOption stream=true` is the trigger, and video then arrives as raw bulk on
+0x85: 10036 packets, 5.08 MB in the 10s capture.
+
+### Full order, from the capture
+
+```
+ 106 ms  RequestAuthenticationCertificate
+ 242 ms  RequestAuthenticationChallengeResponse
+2353 ms  AuthenticationSucceeded
+2353 ms  StartIdentification
+2512 ms  IdentificationAccepted
+2529 ms  StartEASession(protocol 0, session 1)
+2536 ms  SET_INTERFACE iface 1 -> alt 1
+2907 ms  openFile CameraFiles.zip
+2912 ms  openFileStatus -> streamIdentifier 10
+2916 ms  readFile
+3006 ms  SET_INTERFACE iface 2 -> alt 1
+3011 ms  setOption stream=true
+4161 ms  first video on 0x85
+```
+
+Note the alternate settings are selected between the commands, not up front, and
+that the first frame arrives about 1.1s after the stream is requested.
+
+`research/iap2-probes/probe_phone_order.py` replays this. Its command bytes
+regenerate the captured ones exactly.
+
+### Confirmed against the camera
+
+The replay streams. Reproducible across five runs, 46 to 112 frames each at
+about 7.5 fps, no desyncs, and the same frames arrive through the application.
+`src/flirone/iap2/stream.py` is the sequence as shipped.
+
+Two details only showed up in the replay, not in the capture:
+
+- The drain matters. `setOption` drew no reply at all while `CameraFiles.zip`
+  sat unread on `0x83`; draining it first is what makes the camera answer. The
+  capture shows the phone doing this, but it reads as bookkeeping rather than a
+  precondition.
+- Completing the handshake stops the watchdog permanently, so a camera that has
+  streamed never re-announces itself. `close()` resets the device for that
+  reason, and a camera is judged usable by whether it can be claimed, since one
+  held by another process is indistinguishable from a free one on the bus.
+
+The camera also volunteers `sledInformation` as soon as interface 1 goes to
+alternate setting 1. Recovered whole from the capture, split across two bulk
+transfers:
+
+```json
+{"type":"sledInformation","data":{
+  "serialNumberBoard":"F02F9T00570","partNumberBoard":"21200436301",
+  "versionBoard":"D","serialNumberLepton":"421965","versionLepton":"3.1.46",
+  "leptonQR":"A0421965","versionRosebudFactoryESW":"0.4.27",
+  "versionRosebudOperationalESW":"0.4.27","versionRosebudUpdaterESW":"0.4.27",
+  "versionRosebudAPI":"master.015ede4","gitRevision":"master.015ede4",
+  "automaticShutter":"Y","formFactor":"dongle",
+  "thermalHeight":"120","thermalWidth":"160","bigEndianThermal":"0",
+  "operatingMode":"operational"}}
+```
+
+Three things settle here that were previously inferred:
+
+- `bigEndianThermal` is `0`, stating the byte order that decision 002 deduced
+  from physical plausibility. The deduction was right, and is now checkable.
+- The thermal array is 160x120 by the camera's own account, which places the
+  sensor in the Lepton 3 family; Lepton 2 and 2.5 are 80x60. The EXIF model is
+  `FLIR ONE (gen 2)`, and a teardown of that product identifies the core as a
+  Lepton 3. Lepton 3.5, the radiometric variant of the same format, postdates
+  this product. Section 15 rejects TLinear output on measurement alone, which
+  agrees.
+- `automaticShutter` is `Y`, matching the integral-shutter configuration of the
+  datasheet, and the shutter is what section 15 warns against calibrating
+  against.
+
+`versionLepton` is the sensor's firmware revision, not its model number. Do not
+read a part number out of it.
+
+## 15. Live counts are a factor of four below the reference plane
+
+Streaming works and the temperatures computed from it were wrong. The stream's
+counts sit far below what the Planck model expects, using the constants of the
+very camera that produced them:
+
+```
+JPEG raw plane : 12301-23220   ->  22.2 to 73.4 C   correct
+live stream    :  3227- 3354   ->        -72.8 C    impossible
+22 C would need raw 12269
+```
+
+That is not a provenance problem and not a per-unit difference. It is a scale,
+and no choice of Planck constants reconciles the two.
+
+### The shutter is not a usable reference
+
+An earlier version of this section fitted the scale from one point: during a
+flat-field correction the sensor images its own shutter, whose temperature the
+camera reports.
+
+```
+mean 4423.8  std 10.2   shutterTemperature 314.12 K, so 40.97 C
+```
+
+Measured against two physical fixed points, those counts are **48.8 C** where
+the camera reports 40.97, an error of 7.8 C. `shutterTemperature` is evidently a
+thermistor on the shutter mechanism rather than the temperature of the blade
+surface the detector images, and the blade sits directly in front of a
+self-heating sensor. Do not calibrate against it.
+
+The 7.8 C is a property of the shutter, not of the scale: the fitted scale and
+the bare factor of four below put it at 48.90 and 48.78 C respectively. The
+mistake in fitting from it was that one point cannot separate a gain from an
+offset, so it constrained nothing. Its answer, no offset, happens to be right,
+which it had no way of knowing.
+
+### Two fixed points, defined by physics
+
+Neither needs a calibrated instrument, which is the point:
+
+```
+ice-water slurry, stirred    0.00 C     2246.3 counts   drift 1.8
+boiling water at 158 m       99.48 C    7745.8 counts   drift 52.7
+```
+
+The boiling anchor is the noisier of the two, from steam and surface turbulence,
+and it carries most of the remaining uncertainty. The ice point is solid.
+
+### Checked against FLIR's own conversion
+
+Two further targets were read with the official iOS app on the same camera at
+emissivity 0.95, which makes them a comparison against the reference
+implementation rather than against a contact thermometer:
+
+```
+white painted wall   26.0 C   3167.5 counts
+back of a hand       35.0 C   3637.0 counts
+```
+
+These two cannot anchor a fit between them: they are 9 C apart, and a lever arm
+that short turns small errors into large extrapolations. Used as anchors they
+imply a gain of 397706 and mispredict the fixed points by +5.5 and -5.1 C. They
+are useful as checks, not as calibration.
+
+### The result: a factor of four, and an offset that was not there
+
+Fitting gain and offset on all four points, with the radiance correction applied
+and each target's own emissivity:
+
+```
+gain 372748    offset -383.4    rms 0.88 C, worst 1.23 C
+```
+
+That is the form this codebase parameterises in, radiance units. Written the way
+everyone else writes it, as a map onto the reference plane the Planck constants
+assume:
+
+```
+reference_raw = 3.9576 x counts + 213.7
+```
+
+A factor of four, to one percent, with a small residual offset. The four is not
+a coincidence: the Lepton delivers 14 bits and the reference plane is 16, so a
+two-bit shift is exactly what a bit-depth conversion looks like.
+
+**The residual offset does not survive scrutiny, and neither does the one
+percent.** Forcing the offset to zero, each fixed point on its own demands
+
+```
+ice water    reference_raw = 3.9743 x counts
+boiling      reference_raw = 3.9800 x counts
+```
+
+which agree with each other to 0.14% and with four to 0.6%. And the remaining
+0.6% is degenerate with the emissivity assumed for water: at 0.9643 rather than
+0.96 the fitted factor is exactly 4.0000. Water in LWIR runs 0.96 to 0.98
+depending on viewing angle, so the data cannot tell 3.96 from 4.00.
+
+Against a bare factor of four, with no fitted parameter at all:
+
+```
+                     fitted        x4
+  ice water    0 C    +1.23      +0.35
+  boiling   99.5 C    +0.34      +0.72
+  wall      26.0 C    -1.22      -1.67
+  hand      35.0 C    -0.12      -0.43
+  rms                  0.88       0.95
+```
+
+Two free parameters bought 0.07 C of rms. On the two points defined by physics,
+the only two here that owe nothing to another instrument, the bare four is the
+better of the two. **The honest reading is that the scale is exactly four and
+the fit is a one percent noisy estimate of it.**
+
+The fit and the runtime conversion still have to make the same assumptions.
+Constants fitted from uncorrected counts and then used with the emissivity
+correction applied double-count it, which moves the fixed points to -1.1 and
+102.2 C.
+
+### How this section got the offset wrong
+
+Worth recording, because the error was in the comparison rather than in the
+measurement. `CountScale.to_reference` maps counts through radiance and
+subtracts `O` at the end, so `offset=0` does not mean `reference_raw =
+4 x counts`. It means `4 x counts - O`, and `-O` is 1731 counts on this camera.
+Encoding a bare four needs `offset = O/4` as well as `gain = R1/R2/4`.
+
+Comparing against `offset=0` therefore compared against a model 1731 counts
+adrift, which reads 12 C hot at the cold end, and made a correct published
+result look like a crude approximation. `tests/test_calibration.py` now pins
+both the correct encoding and the trap.
+
+The parameterisation was the root cause, so it changed. `CountScale` now holds
+a factor and an intercept on the reference plane, `reference_raw = counts *
+factor + offset`, which is where the relationship lives and how every other
+implementation states it. A bare four is `4.0, 0.0` and reads as such. Scales
+stored under the old form are converted on read, using the Planck constants in
+the same record.
+
+The application uses `4.0, 0.0` for every FLIR One live stream. A bit depth is
+a property of the product rather than of a serial number, so there is nothing to
+calibrate and nothing per-camera to store; the store holds Planck constants and
+only those. `probe_fixed_points.py` remains as the way to test that constant
+against a camera, which is how a unit that disagrees with it would be found.
+
+### The Android work had it right in 2016
+
+`nebarnix/flirone-v4l2_filtered`, a fork of the driver this project already
+credits, converts live counts with Planck constants read from a JPEG and a shift
+applied first:
+
+```c
+double raw2temperature(unsigned short RAW)
+{
+ // mystery correction factor
+ //RAW *=4;
+ RAW = RAW << 2;
+```
+
+tomas123 established the same factor on the eevblog FLIR One for Android thread
+in January 2016, and tested it properly. He took a Lepton sample frame from the
+Android SDK's own `sampleframes.zip`, multiplied by four, and compared its
+statistics against the `RawThermalImage` the SDK app wrote for that same frame:
+
+```
+                        min      max      mean     sd
+  Lepton raw x4       14220    20840    15014.9   1218.95
+  SDK app JPEG raw    14266    20831    15021.4   1221.27
+```
+
+6.5 counts of difference on the mean, which he puts at 0.031 K. That is a far
+tighter check on the factor than four hand-held targets, and it is independent
+of any calibration, since both sides describe the same frame.
+
+Two caveats keep our measurement worth having. His check ran through the SDK
+simulator, so it never passed through a dongle, and it could not have revealed
+an offset introduced by real hardware. And it was done on the Android USB-C
+variant. The measurement here is on a Lightning unit against physical fixed
+points, and it agrees.
+
+### Ruled out: the counts are not Lepton TLinear output
+
+The FLIR One Gen 2 carries a 160x120 Lepton, and the Lepton family can be told
+to emit temperature directly, in hundredths of a kelvin, rather than something
+proportional to flux. If this stream were that, the Planck path above would be
+an elaborate way of fitting a straight line. It is not, on three grounds.
+
+**The magnitudes are wrong.** TLinear puts 0 C at a fixed count:
+
+```
+0.01 K per count   0 C -> 27315 counts      observed 2246
+0.04 K per count   0 C ->  6829 counts      observed 2246
+```
+
+**The counts curve.** Fit the best straight line in temperature through all four
+measured points, two free parameters, one more point than the Planck model was
+given:
+
+```
+              linear in T        Planck, fitted on 2 of the 4
+  0.0 C         +5.96                    +1.23
+ 26.0 C         -3.93                    -1.22
+ 35.0 C         -4.71                    -0.12
+ 99.5 C         +2.69                    +0.34
+  rms            4.48                     0.85
+```
+
+The signs are the giveaway: high at both ends, low in the middle, which is a
+line chasing a curve. There is real curvature to find, because radiance at the
+midpoint of this range is 0.876 of the average of the endpoints where a straight
+line would give 1.000.
+
+**The datasheet does not describe it.** Lepton 3 v3.0 documents two radiometry
+modes, both defined as a transfer function between incident flux and pixel
+output; TLinear belongs to the radiometric variants, not this part. Nor is the
+stream raw Lepton output in radiometry-disabled mode, which anchors a scene at
+the camera's own temperature near count 8192: here a 26 C wall reads 3167 with
+the camera reporting 36.7 C, and 99.5 C water still reads below 8192. The FLIR
+One is applying its own scale, which is the one measured above.
+
+One weak supporting observation: the four points span 309.3 to 311.7 K of
+reported camera temperature, and a single gain and offset covers them to 1.2 C.
+That is what radiometry-enabled mode promises, output independent of the
+camera's own temperature. It is 2.4 K of body swing, so it is consistent with
+that promise rather than evidence for it.
+
+FLIR's own naming agrees. The image type tomas123 exports from the Android app
+in the eevblog thread on full-resolution FLIR One data is
+`ThermalLinearFlux14BitImage`: linear in flux, not in temperature.
+
+### What is not established
+
+- **Whether the factor is exactly four.** Everything points that way: the bit
+  depths, tomas123's 0.031 K check, and our own points fitting it with no free
+  parameter. But our four measurements cannot resolve four from 3.96, because
+  water's emissivity absorbs the difference.
+- **Whether anything is per-unit.** A bit-depth shift would be a property of the
+  product, not of a serial number, and the Android and Lightning variants agree.
+  The store still keeps the scale per camera, which costs nothing and would show
+  a second unit disagreeing rather than hiding it.
+- **The iOS app's assumptions** are inside the two comparison points. It applies
+  its own correction, and only its emissivity setting is known.
+- **Linearity between 35 and 99 C** rests on the boiling point alone.
+
+## 16. Cross-checked against an independent implementation of FLIR's model
+
+The stored-image conversion was checked against `flirimageextractor`, a Python
+port of Glenn Tattersall's `Thermimage`. Both implement the same published FLIR
+model, so this checks arithmetic, not physics: an implementation written from
+the same documentation cannot confirm the documentation. It is still worth
+doing, because the one bug this module has had was arithmetic (the Planck
+constants were read from the wrong offset).
+
+Run over every pixel of `IMG_9400`, 640x480, using that file's own constants
+and conditions:
+
+```
+              mean diff    max diff
+  0 m          -0.0000      0.0000
+  1 m          +0.0223      0.1096
+  5 m          +0.0502      0.2467
+ 20 m          +0.1017      0.4990
+```
+
+At zero range the two agree to floating point. Every difference is therefore in
+one place: the atmospheric path.
+
+### The one divergence: how the path length enters tau
+
+We model the path as one segment of length `d`, so the exponent carries
+`sqrt(d)`. Thermimage models it as two segments of `d/2` whose transmissions
+multiply, so the exponent effectively carries `sqrt(2d)`, and it attenuates
+more. Which convention FLIR itself uses is not established here. The effect is
+0.11 C at 1 m and 0.5 C at 20 m against a camera specified at about 3 C, and the
+FLIR One is a close-range instrument, so it is recorded rather than acted on.
+
+### What an official SDK would and would not settle
+
+The Science File SDK reads radiometric files and returns temperatures with
+FLIR's own code. Running it on `IMG_9400` would settle the atmospheric
+convention above, which is the only open question in the stored-image path.
+
+It cannot say anything about section 15. That SDK reads files, and the live
+count scale is not in any file. The Atlas Android SDK does stream from a FLIR
+One over USB, which would be a direct check, but only from the USB-C variant;
+the unit here is Lightning and the Android SDK cannot reach it.
+
+MSX is not a route in either. It embosses visible-light edges onto the rendered
+thermal image and does not touch the radiometric plane. Temperatures computed
+"from MSX data" are computed from the raw plane underneath it, with MSX only
+affecting the picture. Reading temperature out of an MSX render measures a
+palette.
+
+## 17. A powered-off camera completes the handshake and never says so
+
+The FLIR One has its own power button. With it off, the camera still enumerates,
+still completes iAP2 authentication and identification, still returns
+`sledInformation` with its serial and geometry, still opens `CameraFiles.zip`
+and hands back a stream identifier, and still answers the stream request. The
+frame endpoint then delivers nothing, for as long as you care to wait.
+
+```
+<- sledInformation: {"serialNumberBoard": "F02F9T00570", ...}
+<- openFileStatus:  {"path": "CameraFiles.zip", "streamIdentifier": 10}
+<- batteryChargingStateUpdate: {"chargingState": "stateManagedBatteryChargingOnly"}
+<- setOptionStatus: {"option": "stream", "value": -1}
+   frame endpoint: 0 bytes
+```
+
+The sled controller and the imager are separately powered, and only the first
+one is talking.
+
+**`value: -1` is not the signal.** It looked like a refusal and it is not: a
+working stream returns exactly the same reply. That was checked by pressing the
+button and running again without changing anything else.
+
+```
+<- setOptionStatus: {"option": "stream", "value": -1}
+   161 frames in 20 s, 8.05 fps, 0 desyncs
+```
+
+So the only evidence that a stream started is bytes arriving on the frame
+endpoint. `open()` now waits up to six seconds for the first of them and fails
+with the power button named if none come. Those bytes are frame data and are
+handed to the next `read_frame_chunk`, since dropping them would tear the first
+frame.
+
+This mattered more than a missing message. Without the check the failure is
+silent in the worst way: the session is alive, the source reports "streaming",
+no error is set anywhere, and the application waits forever.
+
+### What a healthy session looks like
+
+Measured on macOS, camera powered, in the same sitting:
+
+```
+bring-up            15.8 to 20 s from open() to the first frame
+rate                8.0 fps over 4 minutes
+frames              1922 in 240 s, 1531 in 210 s
+longest gap         0.4 s
+desyncs             0
+reconnects          0
+```
+
+That is the answer to how long a stream survives, at least at this length: it
+does not degrade. The 36-frame drop recorded in section 8 does not reproduce,
+and the most likely explanation is that those early runs were fighting the
+bring-up rather than the stream.
+
+### Recovery from a cable pulled mid-stream
+
+Traced through `UsbFrameSource` with the camera physically unplugged while it
+was streaming, and plugged back in:
+
+```
+ t= 26.7s  handshake failed   the camera accepted the stream request and sent
+                              no frames  (the imager was not powered)
+ t= 51.9s  streaming
+ t= 57.2s  waiting for camera  frames=34   iAP2 link dropped   <- unplugged
+ t= 87.9s  streaming                                           <- recovered
+```
+
+It recovers in about 31 seconds, which is one bring-up, and needs no
+intervention. The first entry is the check from this section firing on a real
+camera rather than in a test.
+
+The trace also corrected the `reconnects` counter. It used to be incremented
+from the exception type, which missed the commonest drop of all: a pulled cable
+surfaces as `FlirUsbError("iAP2 link dropped")`, the same error a camera that
+was never there raises. A reconnect is now counted when a session that reached
+streaming ends, which is what the word means.

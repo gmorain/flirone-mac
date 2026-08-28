@@ -19,6 +19,8 @@ Roughly in the order they were written:
 | `probe_iap2_auth.py` | full authentication, certificate and challenge |
 | `probe_ea_video.py`, `probe_config_session.py` | EA sessions; config is accepted |
 | `probe_link_then_vendor.py` | link sync without auth leaves the vendor channel inert |
+| `probe_frame_once.py` | one clean run to the failure, for analyser capture |
+| `probe_phone_order.py` | **replays the iPhone's bring-up; this one streams** |
 | `probe_rosebud.py` | FLIR's own command framing over EA |
 | `probe_idle.py`, `probe_trend.py` | the failure is deterministic, not power |
 | `probe_ea_matrix.py` | fileio and frame sessions both reset the camera |

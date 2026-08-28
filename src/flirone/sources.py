@@ -12,12 +12,15 @@ import logging
 import queue
 import threading
 import time
+from dataclasses import replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 
 from . import protocol as proto
+from .calibration import FLIR_ONE_LIVE_SCALE, CountScale
 from .decode import DecodedFrame, decode
 from .usb_link import FlirOneLink, FlirUsbError, StartMode
 
@@ -78,43 +81,88 @@ class _ThreadedSource:
         raise NotImplementedError
 
 
+class UsbTransport(StrEnum):
+    """How to bring the camera up. The two variants do not share a path."""
+
+    IAP2 = "iap2"  # Lightning units: Apple's accessory handshake
+    VENDOR = "vendor"  # Android/USB-C units: the raw vendor protocol
+
+
 class UsbFrameSource(_ThreadedSource):
     """Live camera.
 
     An idle FLIR One watchdog-resets every few seconds, so this reconnects in a
     loop rather than failing once: it waits for enumeration, runs the handshake
     immediately, streams until the device goes away, then repeats.
+
+    Lightning units need the iAP2 bring-up recorded in section 14 of
+    docs/hardware-findings.md; the vendor sequence never reaches a streaming
+    state on them. Android/USB-C units want the vendor path, which is untested
+    here for want of the hardware.
     """
 
     name = "usb"
 
-    def __init__(self, start_mode: StartMode = StartMode.ALT_SETTING) -> None:
+    def __init__(
+        self,
+        start_mode: StartMode = StartMode.ALT_SETTING,
+        transport: UsbTransport = UsbTransport.IAP2,
+    ) -> None:
         super().__init__()
         self.start_mode = start_mode
+        self.transport = transport
         self.frames_seen = 0
         self.reconnects = 0
+        self.sled: dict | None = None
+        self.scale = None
+
+    def _open_link(self):
+        """Return an opened link exposing read_frame_chunk()."""
+        if self.transport is UsbTransport.IAP2:
+            from .iap2.stream import Iap2StreamLink
+
+            link = Iap2StreamLink()
+            link.open(timeout_s=30.0)
+            self.sled = link.sled
+            # Live counts are not on the plane the constants assume, so the
+            # frame carries the one it is on. It is the same for every FLIR
+            # One: a bit depth is a property of the product, not of a unit.
+            self.scale = FLIR_ONE_LIVE_SCALE
+            return link
+        link = FlirOneLink(start_mode=self.start_mode)
+        link.open(timeout_s=10.0)
+        link.start_stream()
+        return link
 
     def _run(self) -> None:
         import usb.core
 
         assembler = proto.FrameAssembler()
         while not self._stop.is_set():
-            link = FlirOneLink(start_mode=self.start_mode)
+            link = None
+            streamed = False
             try:
                 self.status = "waiting for camera"
-                link.open(timeout_s=10.0)
-                link.start_stream()
+                link = self._open_link()
                 assembler.reset()
                 self.status = "streaming"
                 self.error = None
+                streamed = True
                 while not self._stop.is_set():
                     chunk = link.read_frame_chunk(timeout_ms=100)
-                    link.drain()
+                    # The iAP2 link must keep answering the camera or it drops;
+                    # the vendor path instead needs its status pipes emptied.
+                    if hasattr(link, "keepalive"):
+                        link.keepalive()
+                        if not link.alive:
+                            raise FlirUsbError("iAP2 link dropped")
+                    else:
+                        link.drain()
                     if not chunk:
                         continue
                     for raw in assembler.feed(chunk):
                         try:
-                            self._publish(decode(raw))
+                            self._publish(replace(decode(raw), scale=self.scale))
                             self.frames_seen += 1
                         except ValueError as exc:
                             log.debug("undecodable frame: %s", exc)
@@ -124,12 +172,21 @@ class UsbFrameSource(_ThreadedSource):
             except usb.core.USBError as exc:
                 self.status = "disconnected"
                 self.error = str(exc)
-                self.reconnects += 1
+            except Exception as exc:  # a bring-up failure must not kill the thread
+                self.status = "handshake failed"
+                self.error = str(exc)
             finally:
-                try:
-                    link.close()
-                except Exception:
-                    pass
+                # A reconnect is a session that was streaming and stopped. The
+                # count used to come off the exception type, which missed the
+                # commonest drop of all: a cable pulled mid-stream surfaces as
+                # FlirUsbError("iAP2 link dropped") and was never counted.
+                if streamed and not self._stop.is_set():
+                    self.reconnects += 1
+                if link is not None:
+                    try:
+                        link.close()
+                    except Exception:
+                        pass
             if not self._stop.is_set():
                 time.sleep(0.2)
 
@@ -159,7 +216,24 @@ class ReplayFrameSource(_ThreadedSource):
                     break
                 with np.load(path, allow_pickle=False) as data:
                     visible = data["visible"] if "visible" in data else None
-                    self._publish(DecodedFrame(raw=data["raw"], visible=visible, status={}))
+                    # A capture carrying no scale came from a stored image
+                    # and is already on the reference plane. One carrying any
+                    # scale came from a camera. The recorded numbers are used
+                    # when present; `live_gain` is the short-lived radiance
+                    # form, and a live frame is on the live plane whichever way
+                    # the capture happened to spell it.
+                    scale = None
+                    if "live_factor" in data:
+                        scale = CountScale(
+                            factor=float(data["live_factor"]),
+                            offset=float(data["live_offset"]),
+                            source="capture",
+                        )
+                    elif "live_gain" in data:
+                        scale = FLIR_ONE_LIVE_SCALE
+                    self._publish(
+                        DecodedFrame(raw=data["raw"], visible=visible, status={}, scale=scale)
+                    )
                 time.sleep(period)
             if not self.loop:
                 break

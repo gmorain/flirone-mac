@@ -48,6 +48,12 @@ Geometry = tuple[int, int, int, int]  # width, height, stride_words, prelude_byt
 _GEOMETRY_BY_SIZE: dict[int, Geometry] = {
     39364: (160, 120, 164, 4),  # FLIR One Gen 2 / Gen 3 / Pro
     10084: (80, 60, 84, 4),  # FLIR One Pro LT (unverified, same padding scheme)
+    # Live stream from a Lightning Gen 3 (Lepton 3.1.46, Rosebud ESW 0.4.27):
+    # the same 160x120 layout with 488 unexplained bytes after the pixel data.
+    # The sensor size is not inferred, the camera declares it in
+    # sledInformation. What the trailing bytes carry has not been identified,
+    # so they are ignored rather than guessed at.
+    39852: (160, 120, 164, 4),
 }
 
 

@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.9.9
+
+The macOS release: everything works there, live and from a file, in absolute
+degrees. Linux is 1.0.0.
+
+**Live streaming from a Lightning FLIR One works.** An inline analyser capture
+of the official iOS app showed the blocker was self-inflicted: authentication
+comes before identification, exactly one accessory session is opened and it is
+the configuration one, the camera's file listing must be read and drained, and
+the stream is started by a command rather than by opening a session. Earlier
+attempts opened a session no real host opens, which the camera answers by
+leaving the bus. About 7.5 fps, reproducible, and it reaches the application.
+
+**Live readings are absolute.** The stream carries the Lepton's 14-bit counts
+where the plane the Planck constants describe is 16-bit, so converting them is a
+multiplication by four and nothing else. Checked against an ice-water slurry and
+boiling water, both fixed by physics: 0.35 and 100.19 C. Nothing is calibrated
+per camera for this, because a bit depth belongs to the product rather than to a
+serial number.
+
+That answer took two wrong turns, both recorded in section 15 of
+`docs/hardware-findings.md` rather than quietly dropped. It was first fitted
+from the camera's own shutter, which is a thermistor on the mechanism and reads
+7.8 C from what the detector sees; and one point cannot separate a factor from
+an offset anyway. The two-parameter fit that replaced it then appeared to find
+an offset, which turned out to be an artefact of how the scale was
+parameterised. It is a factor of four with no offset, which is what the Android
+reverse engineering established in 2016.
+
+Calibration constants are now remembered per camera, filed under the serial they
+came from, so a camera identified over the accessory handshake gets its own back
+automatically and two cameras are never confused. Two menu entries forget what
+is stored, for one camera or for all.
+
+Fixed: the FLIR APP1 segment reader took all five Planck constants from one
+offset, which is where the camera model string lives. It returned values that
+were positive, absurd, and accepted, making readings about a hundred degrees
+low. The constants are not contiguous, the serial was never read at all, and
+validation now bounds magnitudes rather than only signs.
+
+The stored-image conversion is cross-checked against an independent
+implementation of FLIR's published model, agreeing to floating point at zero
+range over a whole frame. The only divergence is how the path length enters the
+atmospheric term, worth 0.11 C at 1 m; section 16 records it.
+
+`tools/` is now `packaging/`, which is what it holds, and the icon lives beside
+the script that installs it. The bundle version is read from `pyproject.toml`
+instead of being hardcoded in the plist, where it had already drifted two
+releases behind.
+
 ## 0.9.5
 
 Zoom and pan on the image, up to 16x, anchored on the pointer. At fit-to-window

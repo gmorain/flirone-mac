@@ -21,6 +21,17 @@ from .calibration import Planck, Trust
 
 _FIELDS = ("PlanckR1", "PlanckR2", "PlanckB", "PlanckF", "PlanckO")
 
+# Offsets into the FLIR CameraInfo record (type 0x20), matching exiftool's own
+# layout. Verified against a FLIR One Gen 2 file: the values read here are equal
+# to what exiftool reports for the same image.
+PLANCK_R1 = 0x0058
+PLANCK_B = 0x005C
+PLANCK_F = 0x0060
+PLANCK_O = 0x0308  # signed
+PLANCK_R2 = 0x030C
+SERIAL = 0x0104
+SERIAL_LENGTH = 16
+
 
 def from_json(path: Path) -> Planck:
     data = json.loads(Path(path).read_text())
@@ -122,7 +133,16 @@ def from_flir_segment(image: Path) -> Planck:
         rec = payload[rec_offset : rec_offset + rec_len]
         # Byte order of the record is given by its own leading marker.
         endian = "<" if rec[:2] == b"\x02\x00" else ">"
-        r1, b_, f_, o_, r2 = struct.unpack_from(f"{endian}f f f i f", rec, 0x00D4)
+        # The constants are not contiguous: R1/B/F sit together, but O and R2
+        # live a long way further in. Reading them as one run from 0x00D4 lands
+        # on the camera model string, which unpacks as enormous floats that pass
+        # a positivity check and give temperatures wrong by a hundred degrees.
+        (r1,) = struct.unpack_from(f"{endian}f", rec, PLANCK_R1)
+        (b_,) = struct.unpack_from(f"{endian}f", rec, PLANCK_B)
+        (f_,) = struct.unpack_from(f"{endian}f", rec, PLANCK_F)
+        (o_,) = struct.unpack_from(f"{endian}i", rec, PLANCK_O)
+        (r2,) = struct.unpack_from(f"{endian}f", rec, PLANCK_R2)
+        serial = rec[SERIAL : SERIAL + SERIAL_LENGTH].split(b"\x00")[0]
         return Planck(
             r1=float(r1),
             r2=float(r2),
@@ -131,7 +151,8 @@ def from_flir_segment(image: Path) -> Planck:
             o=float(o_),
             trust=Trust.UNVERIFIED,
             source=f"flir-segment:{Path(image).name}",
-        )
+            serial=serial.decode("ascii", "ignore").strip() or None,
+        ).validated()
     raise RuntimeError("no CameraInfo record in the FLIR payload")
 
 

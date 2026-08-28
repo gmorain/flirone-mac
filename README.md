@@ -15,27 +15,28 @@ calibration live on the Setup tab.
 
 ## Status
 
-0.9.5 runs on macOS and Linux. Everything that works from a stored radiometric
-image is complete: measurement, alignment, capture and export. Only live
-streaming is blocked.
+0.9.9 is the macOS release. Everything works there, live and from a file, in
+absolute degrees. Linux is 1.0.0: the application and stored images work fully,
+but the camera path has never been exercised there
+([issue #3](https://github.com/gmorain/flirone-mac/issues/3)).
 
-**Live streaming from a Lightning (iOS) FLIR One does not work yet.** The iAP2
-accessory handshake is implemented and the camera authenticates successfully,
-but it resets when asked to open its video session. The hardware is fine: it
-streams from the official iOS app through the same adapter. Replaying the same
-stack on Linux reproduces the failure exactly, which puts the fault in the
-camera rather than in macOS. See
-[docs/hardware-findings.md](docs/hardware-findings.md) for the full trace and the
-list of eliminated causes.
+**Switch the camera on.** The FLIR One has its own power button. With it off it
+still enumerates and still completes the handshake, and simply never sends a
+frame; the application now says so after six seconds instead of waiting.
 
-The Android/USB-C variant speaks the documented vendor protocol with no iAP
-layer and should work with this driver as written, though that is untested for
-want of the hardware.
+**Live streaming** from a Lightning FLIR One runs at about 8 fps, recovers from
+a disconnect on its own in around half a minute, and reads absolute temperatures
+with no per-camera calibration beyond loading the constants once.
 
-**Radiometric images shot with the phone app work today.** File > Open
-radiometric image loads the raw 16-bit thermal plane along with this camera's
-own Planck constants and the conditions of the shot, so every measurement tool
-runs properly calibrated.
+**Radiometric images from the phone app** carry the camera's own constants and
+the conditions of the shot, so every measurement tool runs properly calibrated.
+
+**The Android/USB-C variant** speaks the documented vendor protocol with no iAP
+layer. That path is in the code and untested: the only camera here is a
+Lightning unit, which never reaches it.
+
+How the camera was made to talk, and what was measured to make its numbers mean
+something, is in [docs/hardware-findings.md](docs/hardware-findings.md).
 
 ## Install
 
@@ -62,9 +63,10 @@ environment.
 
 ### Linux
 
-Everything runs on Linux, interface included. Development and release testing
-happen on macOS, and only live capture is unavailable, for the reason in the
-Status section rather than anything platform-specific.
+Everything runs on Linux, interface included, and stored radiometric images
+work fully. Live capture is not proven there yet: the two host settings below
+are what makes the camera enumerate at all, and they are verified, but the
+bring-up beyond that has only been run on macOS.
 
 ```bash
 sudo apt install libimage-exiftool-perl libusb-1.0-0
@@ -116,10 +118,10 @@ it on the command line.
 
 ### macOS
 
-Or build a double-clickable bundle:
+Or build a double-clickable bundle, with a nice-looking icon:
 
 ```bash
-./tools/make_app.sh
+./packaging/make_app.sh
 ```
 
 ### Linux
@@ -137,23 +139,31 @@ Until you load them the app runs with a reference camera's constants, marks
 itself UNCALIBRATED, and shows readings in orange: those are usable for relative
 thermography and must not be quoted as absolute temperatures.
 
+That is the only calibration there is. The live stream sits four times below the
+plane those constants describe, but four is a bit depth rather than a property
+of your unit, so it is a constant in the code and there is nothing to measure.
+
 To calibrate, shoot one image with the FLIR One phone app and load it via
 *File > Load calibration from radiometric JPEG*. The constants are read straight
 out of the FLIR APP1 segment (exiftool is used as a fallback).
+
+Calibrating is a one-off. The constants are remembered per camera, filed under
+its serial, so a camera that has been calibrated once is calibrated every time:
+plug it in and readings are absolute from the first frame. Two cameras are kept
+apart, each only ever matched with its own constants, and constants carrying no
+serial are not remembered at all. *File > Forget this camera's calibration* and
+*File > Forget all stored calibrations* drop what is stored and return readings
+to relative. The store lives in `~/Library/Application Support/flirone` on macOS
+and `~/.config/flirone` on Linux.
 
 ## Radiometric images
 
 Open a JPEG shot with the FLIR One phone app by dropping it on the window,
 dropping it on the Dock icon, passing it on the command line, or `File > Open
-radiometric image` (Ctrl+O, ⌘O on macOS). Unlike the live stream, these carry
-the camera's own calibration, so readings are absolute rather than relative.
+radiometric image` (Ctrl+O, ⌘O on macOS). These carry the camera's own
+calibration, so they read absolute with nothing loaded first.
 Emissivity, reflected apparent temperature, humidity and distance are read from
 the file and can then be adjusted, and the whole field is recomputed.
-
-The raw plane's byte order is resolved by physical plausibility rather than
-assumption: both orders are converted to temperature and scored against the
-camera's own stated measurement range. Verified against a FLIR One Gen 2 file,
-where the correct order is 172x smoother and puts 99.4% of pixels in range.
 
 Auto scaling clips to the 1st-99th percentile. A few saturated pixels otherwise
 consume most of the palette and flatten the scene; "Full range" gives true

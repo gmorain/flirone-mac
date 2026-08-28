@@ -6,7 +6,7 @@ Conventions for any agent working on this project.
 
 - Python managed with `uv` and `pyproject.toml`. Never `pip install` into the
   environment directly.
-- Lint and format with Ruff. `ruff check src/ tools/ tests/` must pass before a
+- Lint and format with Ruff. `ruff check src/ packaging/ tests/` must pass before a
   change is considered done. `research/` is excluded on purpose.
 - Type-hint public function signatures. Prefer `pathlib` over `os.path`.
 - NumPy for the temperature field, Pillow for image containers, PySide6 for the
@@ -20,7 +20,8 @@ Conventions for any agent working on this project.
   Every capability has to be usable from a script or a notebook.
 - `src/flirone/ui/` is the PySide6 application and depends on the library, never
   the reverse.
-- `tools/` holds maintained utilities that ship. `research/` holds throwaway
+- `packaging/` holds what builds the macOS bundle: the script, the icon
+  generator and the icon itself. `research/` holds throwaway
   hardware probes kept as evidence; they are not maintained and not linted.
 - `docs/hardware-findings.md` is the reverse-engineering record. Append to it,
   and correct earlier conclusions in place when later evidence overturns them

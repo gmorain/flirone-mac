@@ -16,7 +16,7 @@ USB streaming is started.
 uv run pytest -q                  # 77 tests, all offline
 uv run ruff check . && uv run ruff format --check .
 uv run flirone                    # the app
-./tools/make_app.sh               # rebuild the bundle
+./packaging/make_app.sh               # rebuild the bundle
 ```
 
 The interface can be driven headlessly for verification:

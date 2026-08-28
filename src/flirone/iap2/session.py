@@ -100,6 +100,10 @@ class Iap2Session:
         self.established = False
         self.alive = True
         self.t0 = time.monotonic()
+        # Payloads seen on External Accessory sessions, oldest first. pump()
+        # fills this; the caller drains it. Control messages are returned
+        # directly, but EA data is not a control message and was being dropped.
+        self.ea_pending: list[bytes] = []
 
     # -- plumbing -----------------------------------------------------------
 
@@ -229,9 +233,16 @@ class Iap2Session:
                 try:
                     message = control.decode(packet.payload)
                 except control.ControlError as exc:
-                    self.log(
-                        f"           not a control message ({exc}): {packet.payload[:48].hex(' ')}"
-                    )
+                    # EA session data rides the same link, prefixed with the
+                    # 2-byte EA session identifier.
+                    if packet.session and len(packet.payload) > 2:
+                        self.ea_pending.append(packet.payload[2:])
+                    else:
+                        self.log(
+                            f"           not a control message ({exc}): "
+                            f"{packet.payload[:48].hex(' ')}"
+                        )
+                    self.ack()
                     continue
                 self.log(f"           >>> {message}")
                 for parameter in message.parameters:

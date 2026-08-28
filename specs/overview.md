@@ -60,8 +60,10 @@ to for FLIR's APP1 metadata, which no Python library reads reliably.
 Frames arrive from interchangeable sources behind one interface: the camera over
 USB, a folder of previous captures, a still radiometric image, or a synthetic
 scene for development without hardware. That indirection is what allowed the
-whole application to be built and tested while the live USB path remained
-blocked.
+whole application to be built and tested while the live USB path was still being
+worked out, and it is why the camera arriving late changed nothing above it. It
+is still what makes most of the work possible without a camera: only the USB and
+iAP2 paths need one.
 
 External tools are resolved by absolute path rather than through `PATH`, because
 an app bundle launched from Finder does not inherit a shell environment and

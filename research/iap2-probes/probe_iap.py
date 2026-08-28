@@ -6,7 +6,8 @@ change something: a different packet, or a longer survival time.
 """
 from __future__ import annotations
 import sys, time, collections
-sys.path.insert(0, "/Users/gilles/Documents/Projects_Code/flirone-mac/src")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import usb.core, usb.util
 from flirone.usb_link import make_backend
 

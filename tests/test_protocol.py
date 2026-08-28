@@ -74,3 +74,28 @@ def test_inconsistent_section_sizes_resync():
 def test_known_geometry():
     assert geometry_for(39364) == (160, 120, 164, 4)
     assert geometry_for(12345) is None
+
+
+def test_live_stream_section_size_maps_to_the_same_layout():
+    """A live Lightning Gen 3 ships 39852 B: the usual layout plus 488 spare."""
+    assert geometry_for(39852) == geometry_for(39364)
+
+
+def test_trailing_bytes_are_ignored_and_pad_columns_dropped():
+    """Decoding must survive the 488 extra bytes and strip the two pad words."""
+    import numpy as np
+
+    from flirone.decode import decode_thermal
+
+    width, height, stride, prelude = geometry_for(39852)
+    # Number every word so pad columns are identifiable after the round trip.
+    words = np.arange(height * stride, dtype="<u2").reshape(height, stride)
+    raw = b"\x00" * prelude + words.tobytes() + b"\xff" * 488
+    assert len(raw) == 39852
+
+    out = decode_thermal(raw, geometry_for(39852))
+    assert out.shape == (height, width)
+    half = width // 2
+    # Left half is columns 0..79; right half resumes after two pad words.
+    assert list(out[0, :half]) == list(range(half))
+    assert list(out[0, half:]) == list(range(half + 2, 2 * half + 2))

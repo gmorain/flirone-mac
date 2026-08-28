@@ -8,7 +8,7 @@ So this crops the tile out, re-masks it to Apple's shape, and lays it out on the
 standard grid: a 1024 canvas with the tile occupying the centre 824, which is
 what gives an icon the right optical size next to the system ones.
 
-    uv run python tools/make_icon.py source.png [-o FLIROne.icns]
+    uv run python packaging/make_icon.py source.png [-o FLIROne.icns]
 """
 
 from __future__ import annotations
@@ -172,7 +172,7 @@ def write_icns(icon: Image.Image, destination: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
-    parser.add_argument("-o", "--output", type=Path, default=Path("resources/FLIROne.icns"))
+    parser.add_argument("-o", "--output", type=Path, default=Path("packaging/FLIROne.icns"))
     parser.add_argument("--preview", type=Path, help="also write the masked 1024 PNG here")
     args = parser.parse_args()
 
