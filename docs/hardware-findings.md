@@ -702,6 +702,8 @@ regenerate the captured ones exactly.
 
 The replay streams. Reproducible across five runs, 46 to 112 frames each at
 about 7.5 fps, no desyncs, and the same frames arrive through the application.
+Section 17 measures 8.0 fps over 1922 frames; these runs are short enough that
+bring-up settling still counts against them.
 `src/flirone/iap2/stream.py` is the sequence as shipped.
 
 Two details only showed up in the replay, not in the capture:

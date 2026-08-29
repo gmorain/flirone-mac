@@ -31,7 +31,7 @@ comes before identification, exactly one accessory session is opened and it is
 the configuration one, the camera's file listing must be read and drained, and
 the stream is started by a command rather than by opening a session. Earlier
 attempts opened a session no real host opens, which the camera answers by
-leaving the bus. About 7.5 fps, reproducible, and it reaches the application.
+leaving the bus. 8.0 fps, reproducible, and it reaches the application.
 
 **Live readings are absolute.** The stream carries the Lepton's 14-bit counts
 where the plane the Planck constants describe is 16-bit, so converting them is a
