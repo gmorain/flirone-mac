@@ -41,7 +41,7 @@ the readout colour rather than presenting a plausible number.
 
 ## Out of scope
 
-- Video recording, time-lapse and sequence analysis.
+- Video recording and sequence analysis.
 - Automated fault classification or diagnostic advice.
 - Cameras other than the FLIR One family.
 - Editing or retouching the visible image.
