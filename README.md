@@ -15,18 +15,18 @@ calibration live on the Setup tab.
 
 ## Status
 
-0.9.9 is the macOS release. Everything works there, live and from a file, in
-absolute degrees. Linux is 1.0.0: the application and stored images work fully,
-but the camera path has never been exercised there
-([issue #3](https://github.com/gmorain/flirone-mac/issues/3)).
+1.0.0 works on macOS and Linux, live and from a file, in absolute degrees. Both
+were verified against the camera rather than inferred. Linux streams slower,
+about 5.3 fps against 8.0, which is measured and unexplained.
 
 **Switch the camera on.** The FLIR One has its own power button. With it off it
 still enumerates and still completes the handshake, and simply never sends a
 frame; the application now says so after six seconds instead of waiting.
 
-**Live streaming** from a Lightning FLIR One runs at about 8 fps, recovers from
-a disconnect on its own in around half a minute, and reads absolute temperatures
-with no per-camera calibration beyond loading the constants once.
+**Live streaming** from a Lightning FLIR One runs at about 8 fps on macOS and
+5.3 on Linux, recovers from a disconnect on its own in around half a minute, and
+reads absolute temperatures with no per-camera calibration beyond loading the
+constants once.
 
 **Radiometric images from the phone app** carry the camera's own constants and
 the conditions of the shot, so every measurement tool runs properly calibrated.
@@ -63,10 +63,11 @@ environment.
 
 ### Linux
 
-Everything runs on Linux, interface included, and stored radiometric images
-work fully. Live capture is not proven there yet: the two host settings below
-are what makes the camera enumerate at all, and they are verified, but the
-bring-up beyond that has only been run on macOS.
+Live streaming is verified on Linux against the camera, on Ubuntu 22.04 with
+kernel 5.15. It runs about 5.3 fps there against 8.0 on macOS; the cause is not
+known and is recorded rather than explained. Everything else matches, recovery
+from a pulled cable included. The two host settings below are what makes the
+camera enumerate at all.
 
 ```bash
 sudo apt install libimage-exiftool-perl libusb-1.0-0

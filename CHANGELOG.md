@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0
+
+**Live streaming verified on Linux**, on Ubuntu 22.04 with kernel 5.15, against
+the same camera as macOS. The bring-up recovered from the analyser capture
+replays unchanged: first frame at 17.0 to 18.9 s, capture round trip exact to
+0.0000 C, 1579 frames over five minutes with no gap longer than 0.3 s, and
+recovery from a pulled cable in 27.9 s unattended. The Planck constants parse
+bit-for-bit identically to macOS from the same file.
+
+Linux runs at 5.2 to 5.3 fps against 8.0 on macOS, consistent across three runs.
+Both are stable and neither drops a gap over a second, so it is throughput
+rather than a fault. The cause is not known and is recorded rather than guessed.
+
+**The test suite no longer needs a display.** It aborted partway through on a
+headless box, a SIGABRT rather than a reported failure, because Qt had no window
+server. A green run on macOS said nothing about whether the tests ran anywhere
+else.
+
+Section 18 of `docs/hardware-findings.md` has the traces.
+
 ## 0.9.9
 
 The macOS release: everything works there, live and from a file, in absolute

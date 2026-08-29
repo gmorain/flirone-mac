@@ -1083,3 +1083,75 @@ from the exception type, which missed the commonest drop of all: a pulled cable
 surfaces as `FlirUsbError("iAP2 link dropped")`, the same error a camera that
 was never there raises. A reconnect is now counted when a session that reached
 streaming ends, which is what the word means.
+
+## 18. Linux, verified against the camera
+
+Everything in sections 14 to 17 was established on macOS. This section is the
+same camera, `F02F9T00570`, on Ubuntu 22.04 with kernel 5.15, and the answer is
+that the platform costs nothing but frame rate.
+
+The bring-up recovered from the analyser capture replays unchanged. Same
+authenticate-then-identify order, same single configuration session, same
+`setOption stream=true`, same meaningless `-1` in the reply. First frame at
+t+17.0 s on the first run and t+18.9 s on the last, inside the 15.8 to 20 s
+measured on macOS.
+
+| | Linux | macOS |
+|---|---|---|
+| bring-up to first frame | 17.0 to 18.9 s | 15.8 to 20 s |
+| frame rate | 5.2 to 5.3 fps | 8.0 fps |
+| longest gap | 0.3 s | 0.4 s |
+| capture round trip | 0.0000 C | 0.0000 C |
+| recovery from a pulled cable | 27.9 s | 31 s |
+
+Recovery, watched from the first instant rather than from the moment streaming
+began:
+
+```
+ t+  18.9s  streaming
+ t+ 118.3s  waiting for camera  reconnects=1  frames=577  iAP2 link dropped
+ t+ 146.2s  streaming           reconnects=1  frames=578
+```
+
+`reconnects=1` is worth stating explicitly: the counter corrected in section 17
+counts the same event on both platforms.
+
+### The frame rate is genuinely lower
+
+5.2 to 5.3 fps against 8.0, consistent across three runs of two, five and five
+minutes. Both platforms are stable and neither drops a gap over a second, so
+this is throughput rather than a fault, but the cause is not known. It could be
+the USB stack, the libusb transfer timeout, or the machine. Nothing here
+measured it, so nothing here explains it.
+
+### The Planck constants parse identically
+
+`IMG_9400_dist_292mm.JPG` read on Linux gives R1 18453.35546875, R2
+0.012509181164205074, B 1460.5999755859375, F 1.0, O -1731.0, which is what
+macOS reads from the same file, bit for bit. The APP1 segment reader carries no
+platform assumption.
+
+### Two things the runs exposed
+
+The test suite aborted on the headless box. Not a reported failure, a SIGABRT
+partway through: Qt had no window server and took the process down with it. A
+green run on macOS said nothing about whether the tests ran anywhere else.
+`tests/conftest.py` now selects the offscreen platform when Linux has no
+`DISPLAY`.
+
+The first live run stopped rather than producing numbers, because that machine
+had never seen this camera and had no constants for it. That is the intended
+behaviour working in the field: the constants were then read from the camera's
+own radiometric JPEG on that machine, which is also what proved the parser
+above.
+
+### Method note
+
+Two earlier attempts reported no drop and looked like passes. Both were real
+pulls that landed outside the window: the probe opened its window only once
+streaming began, and one pull happened during bring-up, where it was absorbed
+into a 57.8 s start. The evidence it had happened was the USB device number
+moving from 057 to 071. `research/iap2-probes/probe_recovery.py` now watches
+from the first instant and distinguishes "no drop seen, this run says nothing"
+from a pass, because a probe that can miss the event it exists to catch is
+worse than no probe.
