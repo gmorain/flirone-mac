@@ -1,10 +1,21 @@
-# FLIR One on macOS: hardware findings
+# FLIR One: hardware findings
 
-Measured on macOS 26.6.2, Apple Silicon, libusb 1.0, against a FLIR One with a
-Lightning connector via a USB-C adapter. Sections 12 and 13 are Linux and say
-so; section 14 onwards is an analyser capture of an iPhone driving the same
-camera. Where a later section overturns an earlier one, the earlier one is
-marked rather than deleted.
+Measured on macOS 26.6.2, Apple Silicon, libusb 1.0, and on Ubuntu 22.04 with
+kernel 5.15, against a FLIR One with a Lightning connector via a USB-C
+adapter. Sections 12, 13 and 18 are Linux and say so; section 14 onwards rests
+on an analyser capture of an iPhone driving the same camera.
+
+Where a later section overturns an earlier one, the earlier one is marked at its
+head rather than deleted. Sections 3, 6, 8 and 10 carry such marks, and the
+reasoning that led to each wrong turn is kept: what was believed, on what
+evidence, and what displaced it. Sections 1 to 13 are the investigation and
+several of their conclusions did not survive it; 14 onwards is what the software
+does.
+
+Probes named below are cited for what they established, not as things to run.
+Most were deleted in 1.0.1 once the blocker they investigated was closed, and
+`git show v1.0.0:research/iap2-probes/` has them as they stood. The four that
+remain are listed in that directory's README.
 
 ## 1. The Lightning unit enumerates as a normal USB device
 
@@ -203,7 +214,15 @@ The trailing checksum covers the **header**, not the body. Both hardcoded
 headers in the reference driver regenerate byte-for-byte from
 `src/flirone/rosebud.py`, so arbitrary commands can now be built.
 
-## 6. Open blocker: the camera resets whenever it starts real work
+## 6. The camera drops the bus whenever it starts real work
+
+**This section reached the wrong conclusion twice, and the reasoning is kept
+because both errors were reasonable on the evidence available. The drop is a
+protocol fault, not a brownout: opening the fileio or frame session is what
+kills the link, and no real host opens either. Section 14 has the capture, and
+section 9 had already ruled the battery out. The heading read "open blocker"
+until 1.0.1; the blocker closed at 0.9.9.** The table below is accurate and is
+the first place the split between session types shows up.
 
 With authentication complete, behaviour splits cleanly:
 
@@ -225,6 +244,11 @@ The unit's battery is known to be worn, and FLIR documents low-battery reboot
 behaviour on this hardware. This needs retesting on a fully charged battery
 before any protocol-level explanation is worth pursuing.
 
+That last sentence is the mistake worth learning from. It ranked a plausible
+physical cause above a protocol one and sent the next several sections chasing
+power. Section 9 settled it by running the camera from an iPhone through the
+same adapter, which is the test that should have come first.
+
 ## 7. The camera declares exactly the messages we send
 
 Parameters 0x0006 and 0x0007 of IdentificationInformation are the accessory's
@@ -242,6 +266,10 @@ listen to that we are omitting. It also confirms the message identifiers used in
 `control.py` were guessed correctly.
 
 ## 8. Survival is flat across trials, not degrading
+
+**These trials measured a failing bring-up, not a stream. Section 17 has the
+numbers from a camera that streams: four minutes, no gap over 0.4 s, and the
+36-frame drop below does not reproduce.**
 
 Five consecutive trials, each a fresh handshake followed by a request for the
 frame session:
@@ -264,6 +292,11 @@ identical host-side symptoms:
 
 An earlier note in section 6 called this a brownout signature. That reading was
 too strong and this data weakens it.
+
+**Section 17 supersedes the survival numbers here.** A camera that streams runs
+for four minutes without a gap over 0.4 s, and the 36-frame drop below does not
+reproduce. These trials were measuring a failing bring-up, not a failing
+stream.
 
 ### The decisive test is off-host
 
@@ -321,6 +354,10 @@ Capture the real exchange between the iPhone and the camera with an inline USB
 Everything else at this point is guessing at an unpublished specification.
 
 ## 10. Higher-resolution capture corrects sections 6-9
+
+**Its own conclusion is overturned in turn, further down and again in section
+14. The timing measurements here are good; what they were taken to prove is
+not.**
 
 A fresh round of fine-grained probes (camera attached, control interface only)
 measured the failure far more precisely than the earlier polling loops, and

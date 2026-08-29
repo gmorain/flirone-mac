@@ -38,8 +38,11 @@ replacement applied before writing the file. Two bugs in this repo's history cam
 from patches that quietly did nothing: a dataclass whose field types were never
 corrected, and a method whose call sites landed without the method.
 
-Nothing in `research/` is maintained or linted. It is the evidence behind
-`docs/hardware-findings.md`, kept because the blocker it documents is still open.
+Nothing in `research/` is maintained or linted. It holds four probes that need
+a camera and answer questions still open for other hardware: does it stream, is
+the count scale right for this unit, does a session survive, does it recover.
+The twenty-six investigation probes were removed in 1.0.1, once the blocker they
+documented was closed; they are in git history at `v1.0.0`.
 
 ## Hardware
 

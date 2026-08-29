@@ -92,7 +92,7 @@ The full evidence, including what was excluded and how, is in
 - [x] Resolve raw byte order by plausibility
 - [x] Drag and drop, Dock, dialog and command-line entry points
 - [x] Import summary card comparing recorded against measured
-- [x] USB discovery, configuration, and streaming start that works on macOS
+- [x] USB discovery, configuration, and streaming start
 - [x] Frame reassembly with resynchronisation, deinterleave and JPEG decode
 - [x] iAP2 handshake through authentication, yielding the camera serial
 - [x] Interchangeable sources: camera, file, replay folder, synthetic
@@ -101,4 +101,4 @@ The full evidence, including what was excluded and how, is in
 - [x] Recovery from a camera whose handshake left it without a watchdog
 - [x] Live counts converted to absolute temperature
 - [x] The count scale carried on the frame and into the capture
-- [ ] The Lightning bring-up exercised on Linux, which is 1.0.0
+- [x] The Lightning bring-up exercised on Linux as well as macOS

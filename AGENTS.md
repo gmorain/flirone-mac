@@ -21,8 +21,8 @@ Conventions for any agent working on this project.
 - `src/flirone/ui/` is the PySide6 application and depends on the library, never
   the reverse.
 - `packaging/` holds what builds the macOS bundle: the script, the icon
-  generator and the icon itself. `research/` holds throwaway
-  hardware probes kept as evidence; they are not maintained and not linted.
+  generator and the icon itself. `research/` holds the few hardware probes that
+  still answer something; they are not maintained and not linted.
 - `docs/hardware-findings.md` is the reverse-engineering record. Append to it,
   and correct earlier conclusions in place when later evidence overturns them
   rather than leaving them to mislead.

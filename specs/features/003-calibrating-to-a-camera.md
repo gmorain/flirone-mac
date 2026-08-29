@@ -59,7 +59,13 @@ rename, so an interrupted save cannot truncate what was already remembered.
 
 A live stream carries no constants at all, so what promotes stored ones to
 absolute is the serial reported by the accessory handshake matching the serial
-they were filed under. That check is the same one made against an image.
+they were filed under. That check is the same one made against an image, and the
+resulting reading is trusted to the same degree. That is a decision, not a side
+effect of reusing the check: the constants are a property of the unit and do not
+change, the serial match is the evidence they belong to it, the file they came
+from is recorded, and the count scale between the two planes is a constant that
+adds no uncertainty of its own. A weaker state here would tell the reader a
+reading might be wrong when nothing about it is.
 
 Covered by tests for serial matching across both formats, rejection of
 non-physical constants and models, exact recovery from synthetic samples, the

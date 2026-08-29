@@ -8,8 +8,8 @@ __pycache__/
 .DS_Store
 *.icns.bak
 
-# Analyser captures. Large, regenerable, and evidence rather than source.
-research/Cynthion-captures/
+# Analyser captures. Kept outside the repository since 1.0.1; the pattern stays
+# so a stray capture cannot be committed by accident.
 *.pcapng
 
 # Measurement scratch from research probes.
