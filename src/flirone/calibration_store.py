@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,42 @@ from .calibration import Planck, Trust, serials_match
 
 APP_DIR_NAME = "flirone"
 STORE_NAME = "calibrations.json"
+TEMPLATE_DIR_NAME = "templates"
+
+# A serial becomes a filename, so it is checked rather than trusted. Real ones
+# are alphanumeric; anything else is refused instead of sanitised, because a
+# serial that needs cleaning up is a serial that will not match the camera.
+_SERIAL_ALLOWED = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
+
+
+def adopt_from_image(path: Path, store: CalibrationStore, serial: str | None = None) -> Planck:
+    """File a camera's constants and container from one radiometric image.
+
+    Both come from the same file and are keyed by the same serial, so both
+    front ends do this in one call rather than each knowing that a template is
+    filed alongside constants.
+
+    Raises rather than returning None: a calibration that failed to load is
+    something the caller has to report, and every caller has to report it.
+    """
+    from . import fff
+    from .planck_import import load as load_planck
+
+    planck = load_planck(Path(path)).adopted_for(serial)
+    if planck.trust is Trust.MISMATCH:
+        raise ValueError(
+            f"those constants belong to camera {planck.serial}, and this one is {serial}"
+        )
+    if not store.remember(planck):
+        raise ValueError("those constants carry no serial to file them under")
+
+    # Only a radiometric JPEG carries a container. A calibration saved as JSON
+    # does not, and that only matters when a recording is attempted.
+    try:
+        store.remember_template(planck.serial, fff.read_app1(Path(path).read_bytes()))
+    except Exception:
+        pass
+    return planck
 
 
 def default_directory() -> Path:
@@ -121,6 +158,46 @@ class CalibrationStore:
                     source=entry.planck.source,
                     serial=entry.serial,
                 )
+        return None
+
+    # -- templates ----------------------------------------------------------
+
+    def _template_path(self, serial: str) -> Path | None:
+        """Where this camera's container template lives, or None if unusable."""
+        if not _SERIAL_ALLOWED.match(serial or ""):
+            return None
+        directory = (self.path.parent / TEMPLATE_DIR_NAME).resolve()
+        candidate = (directory / f"{serial}.fff").resolve()
+        # A serial that passed the pattern cannot escape, but the check is
+        # cheap and the cost of being wrong is a write outside the store.
+        if candidate.parent != directory:
+            return None
+        return candidate
+
+    def remember_template(self, serial: str | None, payload: bytes) -> bool:
+        """Keep the container payload of a file this camera produced."""
+        path = self._template_path(serial or "")
+        if path is None or not payload:
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_bytes(payload)
+        temporary.replace(path)
+        return True
+
+    def template(self, serial: str | None) -> bytes | None:
+        """This camera's container template, by the same match used for constants."""
+        if not serial:
+            return None
+        for entry in self.entries():
+            if serials_match(entry.serial, serial):
+                path = self._template_path(entry.serial)
+                if path is None:
+                    return None
+                try:
+                    return path.read_bytes()
+                except OSError:
+                    return None
         return None
 
     def forget(self, serial: str | None) -> bool:

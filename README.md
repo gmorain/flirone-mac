@@ -300,6 +300,108 @@ Hovering the image reports the pixel under the cursor; hovering the profile plot
 marks the corresponding pixel on the image and names the CSV row, which is how a
 feature on the curve gets tied to a place in the scene.
 
+## Timelapse
+
+It is possible to record multiple frames at periodic intervals. `Setup > Timelapse` takes an interval, an optional frame count, an optional length in minutes, and a folder, and writes
+one radiometric JPEG per tick.
+
+![The timelapse panel during a run](docs/ui-timelapse.png)
+
+The controls lock while a run is going and the line underneath counts what has
+been written, what was skipped, and where it is going.
+
+The files are the same kind the phone app writes, so they open here with every
+measurement tool and in FLIR's own software, and a whole run can be reprocessed
+later under corrected emissivity or distance. A frame from this camera is about
+140 kB against the 1.4 MB the phone app produces, the difference being a
+1080x1440 visible image there is no reason to reproduce.
+
+Three things stop a run before it starts. A camera has to be streaming, since
+an image opened from a file is already saved. The calibration in use must have
+come from that camera, because hundreds of files claiming absolute temperatures
+are worth nothing if they carry another unit's constants. And one radiometric
+image from it must have been opened at least once, since the files written are
+built from the structure of one it made itself. In practice that is the same
+image the calibration came from.
+
+Files are numbered by tick, not by file. A tick that finds no new frame writes
+nothing and spends its number, so a stalled camera or a pulled cable leaves a
+hole in the sequence:
+
+```
+flirone-000001.jpg
+flirone-000002.jpg
+flirone-000005.jpg    <- the camera was away for two ticks
+flirone-000006.jpg
+```
+
+From a terminal, with no window:
+
+```bash
+uv run flirone-timelapse ~/Pictures/run --every 2 --frames 120
+uv run flirone-timelapse ~/Pictures/run --every 1 --minutes 30 --emissivity 0.92
+```
+
+The measurement conditions are the same five the window offers: `--emissivity`,
+`--reflected`, `--air`, `--humidity`, `--distance`, defaulting to what the window
+starts with and recorded in every file. A value outside its range is clamped and
+said so, since a mistyped emissivity would otherwise be written into hundreds of
+files as though it had been chosen.
+
+It records whichever camera it finds and reads the serial from the handshake, so
+the constants and the container come from the store without being named. On a
+machine that has never seen this camera, file them first, which needs no window:
+
+```bash
+uv run flirone-timelapse --calibrate IMG_9400.JPG
+uv run flirone-timelapse --calibrate IMG_9400.JPG ~/Pictures/run --every 2
+```
+
+Given a folder as well, the image is checked against the camera that is
+streaming, so one from a different unit stops the run there rather than hours
+in. On its own there is no camera to check against and it says so.
+
+`--frames 0` and `--minutes 0` mean no limit, for a run left going. The
+same three refusals apply and exit non-zero. Ctrl-C ends the run and still
+prints the summary:
+
+```
+Bringing the camera up.
+Recording F02F9T00570 to ~/Pictures/run
+  1 written, 2 s
+  2 written, 3 s
+^C
+12 written, 0 skipped, 0 late in 14 s
+in ~/Pictures/run
+```
+
+Nothing on this path imports Qt, so it runs over ssh and on a machine with no
+display.
+
+From a script, if the library is wanted directly:
+
+```python
+from pathlib import Path
+from flirone import timelapse
+from flirone.calibration import Conditions
+from flirone.calibration_store import CalibrationStore
+from flirone.sources import UsbFrameSource
+
+source = UsbFrameSource()
+source.start()
+store = CalibrationStore()
+serial = "F02F9T00570"
+
+timelapse.record(
+    source,
+    timelapse.Settings(Path("~/Pictures/run").expanduser(), interval_s=2.0, max_frames=120),
+    store.find(serial),
+    Conditions(emissivity=0.95, distance_m=1.5),
+    store.template(serial),
+    camera_serial=serial,
+)
+```
+
 ## Diagnostics
 
 ```bash

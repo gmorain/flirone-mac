@@ -37,3 +37,12 @@ def test_each_shortcut_renders_distinctly():
         shortcut_label(s) for s in (SHORTCUT_CAPTURE, SHORTCUT_EXPORT_PROFILE, SHORTCUT_OPEN_IMAGE)
     }
     assert len(labels) == 3
+
+
+def test_a_still_source_is_not_reported_as_a_frame_rate():
+    """A still republishes one frame, so a rate read as live was meaningless."""
+    from flirone.sources import StillFrameSource, SyntheticFrameSource, UsbFrameSource
+
+    assert StillFrameSource.continuous is False
+    assert SyntheticFrameSource.continuous is True
+    assert UsbFrameSource.continuous is True

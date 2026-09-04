@@ -58,7 +58,7 @@ image, and the calibration and conditions in force. So a capture reopened months
 later can be reprocessed under corrected assumptions and produce the
 temperatures that should have been recorded. Temperature grids also export as
 CSV or TIFF, and a folder of captures replays through the application as a
-source.
+source. Recording a live camera to disk over time is feature 005.
 
 Continuous quantities, the blend weight and the three alignment values, are
 sliders with their value beside them. Dragging is for finding a setting; on the

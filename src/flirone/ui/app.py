@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -31,14 +32,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import flirjpeg, registration
+from .. import flirjpeg, registration, timelapse
 from ..calibration import DEFAULT_PLANCK, Conditions, Planck, Trust, raw_to_celsius
-from ..calibration_store import CalibrationStore
+from ..calibration_store import CalibrationStore, adopt_from_image
 from ..compose import MODE_EDGES, MODES, Alignment, compose
 from ..decode import DecodedFrame
 from ..export import profile_csv, save_capture, save_profiles
 from ..measure import Delta, MeasurementSet, spot_quality
 from ..palettes import DEFAULT_PALETTE, PALETTES
+from ..paths import short as short_path
 from ..planck_import import load as load_planck
 from ..sources import ReplayFrameSource, StillFrameSource, SyntheticFrameSource, UsbFrameSource
 from .imageview import TOOL_BOX, TOOL_LINE, TOOL_NONE, TOOL_SPOT, ThermalView
@@ -81,6 +83,8 @@ class MainWindow(QMainWindow):
         self.frame: DecodedFrame | None = None
         self.temps: np.ndarray | None = None
         self.output_dir = Path.home() / "Pictures" / "FLIR One"
+        self.timelapse_dir = self.output_dir / "timelapse"
+        self.recorder: timelapse.Recorder | None = None
         self._import_image = None
         self._import_path = Path()
         # Serial of the camera that produced the data on screen, when known.
@@ -394,6 +398,43 @@ class MainWindow(QMainWindow):
         inner.addWidget(folder_button)
         box.addWidget(group)
 
+        group = QGroupBox("Timelapse")
+        form = QFormLayout(group)
+        form.setContentsMargins(8, 6, 8, 6)
+        form.setSpacing(4)
+
+        self.timelapse_interval = QDoubleSpinBox()
+        self.timelapse_interval.setRange(0.05, 3600.0)
+        self.timelapse_interval.setValue(1.0)
+        self.timelapse_interval.setDecimals(2)
+        self.timelapse_interval.setSuffix(" s")
+        form.addRow("Every", self.timelapse_interval)
+
+        self.timelapse_frames = QSpinBox()
+        self.timelapse_frames.setRange(0, 1_000_000)
+        self.timelapse_frames.setSpecialValueText("no limit")
+        form.addRow("Frames", self.timelapse_frames)
+
+        self.timelapse_minutes = QDoubleSpinBox()
+        self.timelapse_minutes.setRange(0.0, 10_000.0)
+        self.timelapse_minutes.setDecimals(1)
+        self.timelapse_minutes.setSpecialValueText("no limit")
+        form.addRow("Minutes", self.timelapse_minutes)
+
+        self.timelapse_folder_button = QPushButton("Folder...")
+        self.timelapse_folder_button.clicked.connect(self._choose_timelapse_folder)
+        form.addRow(self.timelapse_folder_button)
+
+        self.timelapse_button = QPushButton("Start recording")
+        self.timelapse_button.clicked.connect(self._toggle_timelapse)
+        form.addRow(self.timelapse_button)
+
+        self.timelapse_label = QLabel()
+        self.timelapse_label.setWordWrap(True)
+        form.addRow(self.timelapse_label)
+        box.addWidget(group)
+        self._update_timelapse_label()
+
         box.addStretch(1)
         return page
 
@@ -532,7 +573,12 @@ class MainWindow(QMainWindow):
         # swapping cameras picks up the right constants rather than the last
         # ones loaded. Constants with no serial are refused by the store.
         if adopted.trust is not Trust.MISMATCH:
-            self.calibrations.remember(adopted)
+            # Constants and container together, the same call the command line
+            # makes, so neither has to know a template is filed beside them.
+            try:
+                adopt_from_image(path, self.calibrations, self.current_serial)
+            except Exception:
+                pass
         self._update_calib_label()
         if adopted.trust is Trust.MISMATCH:
             QMessageBox.warning(
@@ -554,8 +600,7 @@ class MainWindow(QMainWindow):
         from this very unit, which is the condition that makes constants
         absolute rather than merely adopted.
         """
-        sled = getattr(self.source, "sled", None)
-        serial = (sled or {}).get("serialNumberBoard")
+        serial = getattr(self.source, "serial", None)
         if not serial:
             return
         self.current_serial = serial
@@ -858,6 +903,90 @@ class MainWindow(QMainWindow):
             widget.setValue(value)
             widget.blockSignals(False)
 
+    def _choose_timelapse_folder(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(self, "Timelapse folder", str(self.timelapse_dir))
+        if chosen:
+            self.timelapse_dir = Path(chosen)
+            self._update_timelapse_label()
+
+    def _toggle_timelapse(self) -> None:
+        if self.recorder is not None and self.recorder.status.running:
+            self.recorder.stop()
+            self._update_timelapse_label()
+            return
+
+        frames = self.timelapse_frames.value() or None
+        minutes = self.timelapse_minutes.value() or None
+        settings = timelapse.Settings(
+            folder=self.timelapse_dir,
+            interval_s=self.timelapse_interval.value(),
+            max_frames=frames,
+            max_seconds=minutes * 60.0 if minutes else None,
+        )
+        camera = timelapse.calibration_for(self.source, self.calibrations)
+        if not camera.serial:
+            QMessageBox.warning(
+                self,
+                "Timelapse",
+                "No camera is streaming. Timelapse records a live camera; an "
+                "image opened from a file is already saved.",
+            )
+            return
+        recorder = timelapse.Recorder(
+            settings,
+            self.planck,
+            self.conditions,
+            camera.template or b"",
+            self.alignment,
+        )
+        # Whether the run can be trusted comes first: it needs answering
+        # whatever the camera is doing this instant.
+        try:
+            recorder.check(camera.serial)
+        except timelapse.TimelapseError as exc:
+            QMessageBox.warning(self, "Timelapse", str(exc))
+            return
+        if self.frame is None:
+            QMessageBox.warning(
+                self,
+                "Timelapse",
+                "Wait until the image is live. A run started before the first frame "
+                "arrives opens with a hole in the numbering, which is supposed to "
+                "mean the camera stalled.",
+            )
+            return
+        # Offered before the clock starts: the first tick fires at once and
+        # would otherwise beat this frame to the queue and record a gap.
+        recorder.offer(self.frame)
+        recorder.start(camera.serial)
+        self.recorder = recorder
+        self._update_timelapse_label()
+
+    def _update_timelapse_label(self) -> None:
+        recording = self.recorder is not None and self.recorder.status.running
+        self.timelapse_button.setText("Stop recording" if recording else "Start recording")
+        for widget in (
+            self.timelapse_interval,
+            self.timelapse_frames,
+            self.timelapse_minutes,
+            self.timelapse_folder_button,
+        ):
+            widget.setEnabled(not recording)
+
+        if self.recorder is None:
+            self.timelapse_label.setText(short_path(self.timelapse_dir))
+            return
+        status = self.recorder.status
+        if status.error:
+            self.timelapse_label.setText(f"Stopped: {status.error}")
+            return
+        skipped = f", {status.skipped} skipped" if status.skipped else ""
+        state = "recording" if status.running else "stopped"
+        line = f"{state}: {status.written} written{skipped}, {status.elapsed_s:.0f} s"
+        if status.late:
+            line += f"\nbehind by up to {status.worst_late_s:.1f} s on {status.late} ticks"
+        self.timelapse_label.setText(f"{line}\n{short_path(status.folder)}")
+
     def _choose_folder(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Capture folder", str(self.output_dir))
         if chosen:
@@ -950,6 +1079,12 @@ class MainWindow(QMainWindow):
             self._adopt_stored_for_live_camera()
 
         frame = self.source.latest(timeout=0.0) if self.source is not None else None
+        if self.recorder is not None:
+            # Before the early return below. A stalled camera is exactly when
+            # the panel has something to say, and it was the one moment the
+            # label stopped updating.
+            self.recorder.offer(frame)
+            self._update_timelapse_label()
         if frame is None:
             return
 
@@ -974,9 +1109,15 @@ class MainWindow(QMainWindow):
         self.profile.set_data(self.measurements.lines, self.temps)
         self._refresh_readout()
 
-        fps = len(self._frame_times) / 2.0
+        size = f"{self.temps.shape[1]}x{self.temps.shape[0]}"
+        # A still republishes one frame, so a rate computed from arrivals says
+        # nothing about it and reads as though the picture were live.
+        if getattr(self.source, "continuous", True):
+            detail = f"{len(self._frame_times) / 2.0:.1f} fps"
+        else:
+            detail = getattr(self.source, "label", "still")
         self.setWindowTitle(
-            f"FLIR One  |  {self.temps.shape[1]}x{self.temps.shape[0]}  |  {fps:.1f} fps"
+            f"FLIR One  |  {size}  |  {detail}"
             + ("" if self.planck.trusted else "  |  UNCALIBRATED")
         )
 
@@ -1043,6 +1184,11 @@ def main() -> int:
         candidate = Path(argument)
         if candidate.exists():
             window.open_path(candidate)
+        else:
+            # Ignoring it silently makes a mistyped path look like a file that
+            # opened to nothing. The window still comes up, since the argument
+            # is a convenience rather than the point of running the program.
+            print(f"flirone: no such file: {argument}", file=sys.stderr)
     return app.exec()
 
 

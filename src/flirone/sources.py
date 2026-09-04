@@ -29,6 +29,12 @@ log = logging.getLogger(__name__)
 
 class FrameSource(Protocol):
     name: str
+    # Whether frames keep coming. A rate means nothing for a source that
+    # republishes one still, and reporting one invites reading it as live.
+    continuous: bool
+    # The camera this is streaming from, when it says. None for sources with
+    # no camera behind them.
+    serial: str | None
 
     def start(self) -> None: ...
     def stop(self) -> None: ...
@@ -37,6 +43,9 @@ class FrameSource(Protocol):
 
 class _ThreadedSource:
     """Common plumbing: a producer thread and a one-slot mailbox."""
+
+    continuous = True
+    serial: str | None = None
 
     name = "source"
 
@@ -115,6 +124,16 @@ class UsbFrameSource(_ThreadedSource):
         self.reconnects = 0
         self.sled: dict | None = None
         self.scale = None
+
+    @property
+    def serial(self) -> str | None:
+        """The camera's own serial, from the accessory handshake.
+
+        Here rather than in the callers: the field name belongs to the iAP2
+        message this class received, and two front ends spelling it out is two
+        places to correct when it turns out to be spelled differently.
+        """
+        return (self.sled or {}).get("serialNumberBoard") or None
 
     def _open_link(self):
         """Return an opened link exposing read_frame_chunk()."""
@@ -300,6 +319,7 @@ class StillFrameSource(_ThreadedSource):
     """Republishes a single frame, so a still behaves like any other source."""
 
     name = "still"
+    continuous = False
 
     def __init__(self, frame: DecodedFrame, label: str = "still") -> None:
         super().__init__()

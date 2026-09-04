@@ -13,10 +13,11 @@ USB streaming is started.
 ## Running things here
 
 ```bash
-uv run pytest -q                  # 77 tests, all offline
+uv run pytest -q                  # 285 tests, all offline
 uv run ruff check . && uv run ruff format --check .
 uv run flirone                    # the app
-./packaging/make_app.sh               # rebuild the bundle
+uv run flirone-timelapse --help   # recording without it
+./packaging/make_app.sh           # rebuild the bundle
 ```
 
 The interface can be driven headlessly for verification:

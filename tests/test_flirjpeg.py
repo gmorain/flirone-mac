@@ -18,6 +18,7 @@ from flirone.calibration import raw_to_celsius
 CANDIDATES = [
     os.environ.get("FLIRONE_TEST_IMAGE"),
     str(Path.home() / "Downloads" / "IMG_3888.JPG"),
+    *(str(p) for p in sorted(Path.home().glob("Pictures/FLIR One/*.JPG"))),
 ]
 IMAGE = next((Path(c) for c in CANDIDATES if c and Path(c).exists()), None)
 

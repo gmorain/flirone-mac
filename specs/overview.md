@@ -27,7 +27,8 @@ the readout colour rather than presenting a plausible number.
 ## In scope
 
 - Reading FLIR radiometric JPEGs, including the raw 16-bit plane, the camera's
-  own calibration and the conditions the shot was taken under.
+  own calibration and the conditions the shot was taken under, and writing them
+  back for a timelapse run.
 - Converting raw sensor counts to degrees Celsius with the full object-radiance
   correction.
 - Measurement tools over the temperature field, with results in absolute units.

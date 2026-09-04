@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.0
+
+**Timelapse.** A streaming camera records itself to radiometric JPEGs, one per
+interval, from `Setup > Timelapse` or from `flirone-timelapse` with no window.
+An interval, an optional frame count and an optional length in minutes; the
+measurement conditions are flags on the command line. Files open here with every
+measurement tool and in FLIR's own software, at about 140 kB against the 1.4 MB
+the phone app writes for the same scene.
+
+Writing them meant writing FLIR's own container, which ExifTool cannot do. The
+writer patches a template taken from a file the camera itself produced, so the
+record types nobody has parsed survive untouched, and replaces the four that
+describe this frame. A round trip through our reader and ExifTool matches the
+source field exactly; the conditions come back to float32, worth 0.0001 C on a
+live scene.
+
+Three refusals rather than a folder of files that quietly mean something else: a
+camera has to be streaming, its calibration has to have come from it, and one
+radiometric image from it has to have been opened, which `--calibrate` now does
+without a window. Files are numbered by tick, so a stalled camera leaves a hole
+in the numbering rather than repeated copies of the last good frame.
+
+**The layering rule is enforced by a test.** No module outside `ui/` may import
+Qt or the interface, which `AGENTS.md` has required since the project started
+with nothing checking it.
+
 ## 1.0.0
 
 **Live streaming verified on Linux**, on Ubuntu 22.04 with kernel 5.15, against
