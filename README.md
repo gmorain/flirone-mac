@@ -15,7 +15,7 @@ calibration live on the Setup tab.
 
 ## Status
 
-1.0.0 works on macOS and Linux, live and from a file, in absolute degrees. Both
+1.1.0 works on macOS and Linux, live and from a file, in absolute degrees. Both
 were verified against the camera rather than inferred. Linux streams slower,
 about 5.3 fps against 8.0, which is measured and unexplained.
 
@@ -30,6 +30,11 @@ constants once.
 
 **Radiometric images from the phone app** carry the camera's own constants and
 the conditions of the shot, so every measurement tool runs properly calibrated.
+
+**Timelapse** records a streaming camera to radiometric JPEGs, one per interval,
+from the window or from `flirone-timelapse` with no window at all. The files
+open here and in FLIR's own software. Verified on macOS; the recording path has
+not been run on Linux, though nothing in it is platform-specific.
 
 **The Android/USB-C variant** speaks the documented vendor protocol with no iAP
 layer. That path is in the code and untested: the only camera here is a
