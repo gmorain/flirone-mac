@@ -1029,14 +1029,25 @@ FLIR One is a close-range instrument, so it is recorded rather than acted on.
 
 ### What an official SDK would and would not settle
 
-The Science File SDK reads radiometric files and returns temperatures with
-FLIR's own code. Running it on `IMG_9400` would settle the atmospheric
-convention above, which is the only open question in the stored-image path.
+Atlas is the SDK that was granted, in its Android and iOS builds. Its
+`FLIRThermalParameters` exposes `objectDistance` and `relativeHumidity` as
+settable floats and `atmosphericTransmission` as a readable one, so the
+experiment is not a pixel comparison at all: set the distance, read the
+transmission FLIR computes, and compare it against ours at `d` and against
+ours at `d/2` squared. One float per distance settles it.
 
-It cannot say anything about section 15. That SDK reads files, and the live
-count scale is not in any file. The Atlas Android SDK does stream from a FLIR
-One over USB, which would be a direct check, but only from the USB-C variant;
-the unit here is Lightning and the Android SDK cannot reach it.
+The cost is the host. The iOS xcframework carries only `ios-arm64` and
+`ios-arm64_x86_64-simulator`, and the simulator slice links UIKit, OpenGLES and
+AssetsLibrary, none of which exist on macOS, so it cannot be loaded into a
+command-line tool by retargeting the platform. It needs the iOS Simulator, and
+the simulator needs full Xcode. Nothing here is blocked on that: the divergence
+is 0.048 C at this file's 292 mm and 0.09 C at 1 m, against a camera whose
+close-range use makes both irrelevant.
+
+Neither Atlas build says anything about section 15. Reading a file cannot: the
+live count scale is not in any file. Atlas Android does stream from a FLIR One
+over USB, which would be a direct check, but only from the USB-C variant; the
+unit here is Lightning and it cannot reach it.
 
 MSX is not a route in either. It embosses visible-light edges onto the rendered
 thermal image and does not touch the radiometric plane. Temperatures computed
